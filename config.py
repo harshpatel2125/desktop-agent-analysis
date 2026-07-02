@@ -90,6 +90,11 @@ class Config:
     # you were already running alone).
     stop_metro_on_exit: bool = True
 
+    # background cursor nudger: keeps the cursor moving at least this often (max stays
+    # <= target) so no idle gap forms during long sleeps. Skips while a real user is active.
+    enable_cursor_keeper: bool = True
+    cursor_move_interval: tuple[float, float] = (12.0, 20.0)  # move at least every ~20s
+
     # auto-pause when a real person uses the machine; resume after this many seconds
     # of no genuine (hardware) input. The blackpearl's own injected input doesn't count.
     enable_auto_pause: bool = True

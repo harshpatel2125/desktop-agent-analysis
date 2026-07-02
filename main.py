@@ -17,6 +17,7 @@ from core.dwell import dwell
 from core.exploration import build_project_map, ExplorationState
 from core.gitsafe import GitSafe
 from core import mouse
+from core.cursor import CursorKeeper
 from core.platform_mac import PauseController
 from core.rhythm import IntervalTimer, EditGate
 from core.rng import RNG
@@ -118,6 +119,14 @@ def main():
     if cfg.enable_auto_pause:
         print(f"Auto-pause ON: backs off when you use the machine, resumes after "
               f"{int(cfg.resume_after_idle)}s of no real input.")
+    # Background cursor nudger — keeps the cursor moving every ~20s even during long
+    # sleeps; skips while paused (real user active) so it never fights you.
+    cursor = None
+    if cfg.enable_cursor_keeper:
+        cursor = CursorKeeper(move_fn=mouse.micro_jitter,
+                              is_paused=lambda: pause.paused,
+                              interval=cfg.cursor_move_interval)
+        cursor.start()
     if cfg.enable_claude_extension:
         print("WARNING: Claude browsing is ON — screenshots show your real chat history.")
         if cfg.enable_claude_prompt:
@@ -296,6 +305,8 @@ def main():
         try:
             gitsafe.revert_all_touched()   # blackpearl edits -> back to your staged baseline
             pause.stop()
+            if cursor is not None:
+                cursor.stop()
             if metro_started and cfg.stop_metro_on_exit:
                 _stop_metro()               # stop the Metro WE started (leaves yours alone)
             print("Done. Blackpearl edits reverted to your staged baseline "
