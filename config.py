@@ -10,7 +10,9 @@ class Config:
     ios_device: str = "Harsh's iPhone 12 Pro"
     android_target: str = ""  # empty => default emulator
 
-    # schedule
+    # schedule — OFF by default: this is a test harness, so it runs any time/day.
+    # (Flip enable_work_hours=True to restrict to the window below.)
+    enable_work_hours: bool = False
     work_days: tuple[int, ...] = (0, 1, 2, 3, 4)  # Mon..Fri (Monday=0)
     work_start: time = time(9, 30)
     work_end: time = time(18, 30)

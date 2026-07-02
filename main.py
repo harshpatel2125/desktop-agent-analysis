@@ -154,7 +154,7 @@ def main():
                 was_paused = True
                 time.sleep(2.0)
                 continue
-            if not ignore_hours and not is_active_now(cfg, datetime.now()):
+            if cfg.enable_work_hours and not ignore_hours and not is_active_now(cfg, datetime.now()):
                 if not idle_announced:
                     print(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
                           f"weekdays {cfg.work_days}). Nothing will run until then. "
