@@ -58,7 +58,7 @@ def test_revert_restores_to_staged_baseline_not_head(tmp_path):
     gs = GitSafe(str(repo))
     f.write_text("user-work\n")
     gs.stage_all()                 # baseline = "user-work" in the index
-    f.write_text("harness-edit\n")  # harness edits on top (unstaged)
+    f.write_text("blackpearl-edit\n")  # blackpearl edits on top (unstaged)
     gs.revert_file("a.txt")
     assert f.read_text() == "user-work\n"   # restored to the user's staged work, NOT "original"
     assert gs.file_is_clean("a.txt") is True
@@ -67,7 +67,7 @@ def test_revert_restores_to_staged_baseline_not_head(tmp_path):
 def test_revert_file_restores_when_nothing_staged(tmp_path):
     repo, f = _init_repo(tmp_path)
     gs = GitSafe(str(repo))
-    f.write_text("harness-edit\n")   # unstaged, nothing staged -> index == HEAD
+    f.write_text("blackpearl-edit\n")   # unstaged, nothing staged -> index == HEAD
     gs.revert_file("a.txt")
     assert f.read_text() == "original\n"
 
@@ -79,8 +79,8 @@ def test_revert_all_touched_only_touches_tracked(tmp_path):
     subprocess.run(["git", "add", "b.txt"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "b"], cwd=repo, check=True)
     gs = GitSafe(str(repo))
-    f.write_text("harness-edit\n")
-    other.write_text("user-edit-b\n")   # NOT tracked by the harness
+    f.write_text("blackpearl-edit\n")
+    other.write_text("user-edit-b\n")   # NOT tracked by the blackpearl
     gs.note_touched("a.txt")
     gs.revert_all_touched()
     assert f.read_text() == "original\n"          # reverted

@@ -16,7 +16,7 @@ def hid_idle_seconds() -> float:
     """Seconds since the last REAL hardware (HID) input event.
 
     Crucially this uses the HID system state, which is NOT reset by injected
-    (pyautogui/CGEvent) events — so the harness's own synthetic input does not
+    (pyautogui/CGEvent) events — so the blackpearl's own synthetic input does not
     count. This measures only genuine human mouse/keyboard activity.
     """
     return float(CGEventSourceSecondsSinceLastEventType(
@@ -44,14 +44,14 @@ class PauseController:
 
     Pauses when the sentinel file exists OR — if auto_pause is on — when a real
     person has used the mouse/keyboard within the last `resume_after` seconds.
-    Because it reads HID idle time (which the harness's own injected input does
+    Because it reads HID idle time (which the blackpearl's own injected input does
     NOT reset), the script backs off the instant you touch the machine and
     resumes only after `resume_after` seconds of no genuine input.
 
-    Manual pause: `touch /tmp/harness_pause` (resume: remove it).
+    Manual pause: `touch /tmp/blackpearl_pause` (resume: remove it).
     """
 
-    SENTINEL = "/tmp/harness_pause"
+    SENTINEL = "/tmp/blackpearl_pause"
 
     def __init__(self, auto_pause: bool = True, resume_after: float = 120.0,
                  idle_fn=hid_idle_seconds, poll: float = 0.5):

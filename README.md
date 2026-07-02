@@ -1,13 +1,13 @@
-# Activity Harness (macOS)
+# Blackpearl (macOS)
 
-A red-team **activity-simulation harness** for testing **the monitoring agent** (an employee
+A red-team **activity-simulation blackpearl** for testing **the monitoring agent** (an employee
 presence/attendance monitor). It drives realistic, human-paced developer activity in
 VS Code on a real React Native project so you can observe *which of the monitoring agent's presence
 signals can be fooled by synthetic-but-human-looking behavior* — and therefore where
 the monitoring agent's detection needs hardening.
 
 It is **transient and non-destructive**: your work is staged as a baseline, every edit
-the harness makes is reverted, and it **never commits or pushes**.
+the blackpearl makes is reverted, and it **never commits or pushes**.
 
 > ⚠️ **Honest scope.** This simulates *human-looking* activity. It does **not** claim to
 > be undetectable. In particular it uses `pyautogui` (software-injected input), which the
@@ -38,7 +38,7 @@ the harness makes is reverted, and it **never commits or pushes**.
 
 ## What it does
 
-While you're away, the harness makes the machine look like an engineer actively working
+While you're away, the blackpearl makes the machine look like an engineer actively working
 on the `warp-speed-ai-app` Expo/React Native project:
 
 - **Reads code** — opens real files, scrolls through them at human speeds (page-by-page,
@@ -115,7 +115,7 @@ prompt, or add it manually in System Settings).
 ## Running it
 
 Launch it from a terminal that is **not** the captured VS Code window (a separate Space,
-or minimized) so screenshots don't show the harness itself.
+or minimized) so screenshots don't show the blackpearl itself.
 
 **Normal (realistic pacing):**
 ```bash
@@ -128,22 +128,22 @@ uv run python main.py
 
 **Fast (watch it work quickly):**
 ```bash
-HARNESS_TEST=1 uv run python main.py
+BLACKPEARL_TEST=1 uv run python main.py
 ```
 - **Only difference is speed** — short gaps/dwells, Jira/Slack cycle every ~40–90 s.
   All behavior (auto-pause, Claude, safety) is identical to normal.
 
 **Fast + see every action in the terminal:**
 ```bash
-HARNESS_TEST=1 HARNESS_DEBUG=1 uv run python main.py
+BLACKPEARL_TEST=1 BLACKPEARL_DEBUG=1 uv run python main.py
 ```
 
 **Realistic pacing but ignore the work-hours gate (e.g. testing at night):**
 ```bash
-HARNESS_IGNORE_HOURS=1 uv run python main.py
+BLACKPEARL_IGNORE_HOURS=1 uv run python main.py
 ```
 
-Flags combine freely (`HARNESS_TEST=1 HARNESS_DEBUG=1 HARNESS_IGNORE_HOURS=1 …`).
+Flags combine freely (`BLACKPEARL_TEST=1 BLACKPEARL_DEBUG=1 BLACKPEARL_IGNORE_HOURS=1 …`).
 
 ---
 
@@ -151,24 +151,24 @@ Flags combine freely (`HARNESS_TEST=1 HARNESS_DEBUG=1 HARNESS_IGNORE_HOURS=1 …
 
 | Flag | Effect |
 |---|---|
-| `HARNESS_TEST=1` | Fast profile — short gaps/dwells + quick Jira/Slack cycle. Speed only; nothing else changes. |
-| `HARNESS_DEBUG=1` | Print each action as it runs (`· read file …`, `· CLAUDE browse`, …). |
-| `HARNESS_IGNORE_HOURS=1` | Bypass the work-hours/day gate. |
+| `BLACKPEARL_TEST=1` | Fast profile — short gaps/dwells + quick Jira/Slack cycle. Speed only; nothing else changes. |
+| `BLACKPEARL_DEBUG=1` | Print each action as it runs (`· read file …`, `· CLAUDE browse`, …). |
+| `BLACKPEARL_IGNORE_HOURS=1` | Bypass the work-hours/day gate. |
 
 ---
 
 ## Stop / pause / resume
 
 - **Auto-pause / auto-resume (on by default):** the moment you use the mouse/keyboard the
-  harness pauses (it reads *hardware* idle time, so its own injected input doesn't count),
+  blackpearl pauses (it reads *hardware* idle time, so its own injected input doesn't count),
   and resumes after `resume_after_idle` (default **120 s**) of no real input. On resume it
   re-focuses the project's VS Code window before continuing.
-- **Manual pause:** `touch /tmp/harness_pause`  · **resume:** `rm /tmp/harness_pause`
+- **Manual pause:** `touch /tmp/blackpearl_pause`  · **resume:** `rm /tmp/blackpearl_pause`
 - **Stop:** `Ctrl+C` (cleanup is shielded from a second Ctrl+C so the revert completes), or
   slam the mouse into a screen corner (pyautogui failsafe).
 
 On exit it reverts every file it touched back to your staged baseline and prints
-`Done. Harness edits reverted to your staged baseline`.
+`Done. Blackpearl edits reverted to your staged baseline`.
 
 ---
 
@@ -240,7 +240,7 @@ All settings live in the frozen `Config` dataclass in [config.py](config.py). No
 ## Safety model
 
 - **Staging baseline.** On the first active iteration it runs `git add -A`, snapshotting
-  your current work into the git index. Reverting a harness edit (`git checkout -- <file>`)
+  your current work into the git index. Reverting a blackpearl edit (`git checkout -- <file>`)
   restores the file to *your staged version*, not `HEAD` — so your work is the floor.
 - **No stash** (a previous stash-based approach could be left half-applied on a double
   Ctrl+C; the staging model removes that failure class entirely).
@@ -248,16 +248,16 @@ All settings live in the frozen `Config` dataclass in [config.py](config.py). No
   [core/gitsafe.py](core/gitsafe.py) (`ForbiddenGitOp`); `add` (staging) is the only
   write, and it's local-only. Nothing ever reaches shared history or the remote.
 - **Every edit reverts** (Cmd+Z, then a git drift-check + `git checkout` fallback), and on
-  exit/crash all harness-touched files are reverted to the staged baseline. Cleanup is
+  exit/crash all blackpearl-touched files are reverted to the staged baseline. Cleanup is
   shielded from a second Ctrl+C.
-- **When you return:** your work is staged; anything the harness left is unstaged, so
+- **When you return:** your work is staged; anything the blackpearl left is unstaged, so
   `git checkout .` drops it and keeps your staged work.
 - **`.gitignore` / `ios/Podfile.lock`** and other pre-existing changes are staged as-is;
-  the harness never edits them.
+  the blackpearl never edits them.
 
 > One caveat: if you leave **Claude prompt-sending on** *and* Claude's "Edit automatically"
 > is enabled, Claude may edit your code in response to a sent prompt — those edits are **not**
-> tracked by the harness and won't be reverted. Turn off Claude auto-edit, or set
+> tracked by the blackpearl and won't be reverted. Turn off Claude auto-edit, or set
 > `enable_claude_prompt=False`.
 
 ---
@@ -283,7 +283,7 @@ Startup prints warnings when these are on.
 
 ## Tuning to your screen layout
 
-The harness clicks/scrolls at screen-fraction coordinates, so it assumes a layout:
+The blackpearl clicks/scrolls at screen-fraction coordinates, so it assumes a layout:
 **Claude panel docked right (~30%), terminal docked bottom, editor in the center.** If your
 layout differs, adjust these in [config.py](config.py):
 
@@ -329,7 +329,7 @@ This makes human-*looking* signals convincing; it is **not undetectable**. A mon
 still catch it via:
 
 1. **Synthetic input source** — `pyautogui` events are software-injected (`CGEventPost`);
-   the OS flags them, and this harness does not defeat that check (would need HID/kernel-level
+   the OS flags them, and this blackpearl does not defeat that check (would need HID/kernel-level
    spoofing, deliberately out of scope).
 2. **Net-zero-change signature** — all edits revert, nothing commits; correlating
    edits→work-product exposes it.
@@ -348,9 +348,9 @@ of the exercise.
 
 - **Nothing happens / mouse never moves.** Almost always the **work-hours gate** (outside
   09:30–18:30 Mon–Fri) or **auto-pause** (you're touching the machine). Use
-  `HARNESS_IGNORE_HOURS=1`, and for a watched run don't move the mouse (or use `HARNESS_TEST`).
+  `BLACKPEARL_IGNORE_HOURS=1`, and for a watched run don't move the mouse (or use `BLACKPEARL_TEST`).
 - **A command got typed into the commit box / editor.** Terminal/palette focus issue — the
-  harness now uses the Command Palette (`Terminal: Focus on Terminal View`) and reliable
+  blackpearl now uses the Command Palette (`Terminal: Focus on Terminal View`) and reliable
   modifier chords. Confirm those command titles match your VS Code version.
 - **Clicks land on the Claude panel / terminal.** Layout mismatch — tune `editor_x_range` /
   `editor_y_range`.
@@ -359,7 +359,7 @@ of the exercise.
 - **Claude panel doesn't scroll.** It needs a focus-click first (handled), and the aim must
   be over the transcript — tune `claude_panel_x_frac` / `claude_scroll_y_range`.
 - **Left a leftover git stash** (from an older version) — the current build uses no stash;
-  if you see a `harness-baseline` stash from before, your work is already in the tree;
+  if you see a `blackpearl-baseline` stash from before, your work is already in the tree;
   `git stash drop 'stash@{0}'` after confirming.
 
 ---

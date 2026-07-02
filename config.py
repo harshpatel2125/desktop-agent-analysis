@@ -10,7 +10,7 @@ class Config:
     ios_device: str = "Harsh's iPhone 12 Pro"
     android_target: str = ""  # empty => default emulator
 
-    # schedule — OFF by default: this is a test harness, so it runs any time/day.
+    # schedule — OFF by default: this is a test blackpearl, so it runs any time/day.
     # (Flip enable_work_hours=True to restrict to the window below.)
     enable_work_hours: bool = False
     work_days: tuple[int, ...] = (0, 1, 2, 3, 4)  # Mon..Fri (Monday=0)
@@ -86,12 +86,12 @@ class Config:
     editor_x_range: tuple[float, float] = (0.25, 0.64)
     editor_y_range: tuple[float, float] = (0.24, 0.60)
 
-    # on shutdown, stop Metro (port 8081) IF the harness started it (leaves a Metro
+    # on shutdown, stop Metro (port 8081) IF the blackpearl started it (leaves a Metro
     # you were already running alone).
     stop_metro_on_exit: bool = True
 
     # auto-pause when a real person uses the machine; resume after this many seconds
-    # of no genuine (hardware) input. The harness's own injected input doesn't count.
+    # of no genuine (hardware) input. The blackpearl's own injected input doesn't count.
     enable_auto_pause: bool = True
     resume_after_idle: float = 120.0  # 2 minutes
 

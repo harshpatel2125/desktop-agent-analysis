@@ -1,7 +1,7 @@
 [project]
-name = "activity-harness"
+name = "blackpearl"
 version = "0.1.0"
-description = "macOS red-team activity harness for testing the monitoring agent presence detection."
+description = "macOS red-team blackpearl for testing the monitoring agent presence detection."
 requires-python = ">=3.13"
 dependencies = [
     "pyautogui>=0.9.54",

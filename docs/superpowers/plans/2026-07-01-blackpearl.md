@@ -1,8 +1,8 @@
-# Activity Harness Implementation Plan
+# Blackpearl Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a macOS red-team activity harness that drives realistic, human-paced developer activity on `warp-speed-ai-app` so the monitoring agent's presence signals (input, screenshots, active app, processes) can be tested — with all edits transient and the repo left exactly as found.
+**Goal:** Build a macOS red-team blackpearl that drives realistic, human-paced developer activity on `warp-speed-ai-app` so the monitoring agent's presence signals (input, screenshots, active app, processes) can be tested — with all edits transient and the repo left exactly as found.
 
 **Architecture:** Restructure the existing single-file `main.py` into a small package: pure-logic modules (`config`, `core/rhythm`, `core/exploration`, `core/gitsafe`) that are unit-tested, plus GUI-driving modules (`core/mouse`, `core/keyboard_sim`, `core/platform_mac`, `actions/*`) that are concrete but verified via integration/manual runs. A `main.py` session loop selects weighted actions paced by the rhythm scheduler, gated by work-hours/days, with pause + cleanup handlers.
 
@@ -15,9 +15,9 @@
 - Backend repo path: `/Users/harsh/Documents/projects/warpspeed/warp-speed-ai-backend`.
 - iOS device: `"Harsh's iPhone 12 Pro"`.
 - Package manager for the target project: pnpm (`pnpm start`, `pnpm ios:device`, `pnpm android`).
-- **Transient only:** every edit is reverted; the harness performs **no `git commit`, no `git add`/staging, no `git push`** — ever. A guard must reject these.
+- **Transient only:** every edit is reverted; the blackpearl performs **no `git commit`, no `git add`/staging, no `git push`** — ever. A guard must reject these.
 - **No local anti-forensics** (no scrubbing reflog/history/process hiding). Remote-invisibility comes from never-commit/never-push + revert.
-- Cleanup reverts **only files the harness's own edit/break-fix actions touched** — never a blanket `git checkout .`; leave pre-existing changes, `ios/Podfile.lock`, `package-lock.json` alone.
+- Cleanup reverts **only files the blackpearl's own edit/break-fix actions touched** — never a blanket `git checkout .`; leave pre-existing changes, `ios/Podfile.lock`, `package-lock.json` alone.
 - Active only on `WORK_DAYS` (default Mon–Fri) within `WORK_HOURS` (default 09:30–18:30).
 - pyautogui failsafe stays ON (corner-slam abort); `PAUSE_HOTKEY` yields to a returning real user.
 - All external commands best-effort (`check=False`), non-blocking, with `COMMAND_TIMEOUT`.
@@ -618,8 +618,8 @@ def test_revert_all_touched_only_touches_tracked(tmp_path):
     subprocess.run(["git", "add", "b.txt"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-qm", "b"], cwd=repo, check=True)
     gs = GitSafe(str(repo))
-    f.write_text("harness-edit\n")
-    other.write_text("user-edit-b\n")     # NOT tracked by harness
+    f.write_text("blackpearl-edit\n")
+    other.write_text("user-edit-b\n")     # NOT tracked by blackpearl
     gs.note_touched("a.txt")
     gs.revert_all_touched()
     assert f.read_text() == "original\n"       # reverted
@@ -652,7 +652,7 @@ class GitSafe:
 
     def run(self, args: list[str]) -> subprocess.CompletedProcess:
         if args and args[0] in _FORBIDDEN:
-            raise ForbiddenGitOp(f"git {args[0]} is not permitted by the harness")
+            raise ForbiddenGitOp(f"git {args[0]} is not permitted by the blackpearl")
         return subprocess.run(
             ["git", *args], cwd=self.repo,
             capture_output=True, text=True, check=False,
@@ -680,8 +680,8 @@ class GitSafe:
     def stash_push(self) -> bool:
         if not self.is_dirty():
             return False
-        # include untracked so nothing user-made leaks into harness edits
-        res = self.run(["stash", "push", "-u", "-m", "harness-baseline"])
+        # include untracked so nothing user-made leaks into blackpearl edits
+        res = self.run(["stash", "push", "-u", "-m", "blackpearl-baseline"])
         self._stashed = res.returncode == 0
         return self._stashed
 
@@ -952,10 +952,10 @@ class PauseController:
     """Toggle-able pause flag. Polls NSWorkspace + a sentinel file for control.
 
     A global hotkey requires Accessibility + an event tap; to stay dependency-light
-    the harness also honors a sentinel file at /tmp/harness_pause (create=pause, remove=resume).
+    the blackpearl also honors a sentinel file at /tmp/blackpearl_pause (create=pause, remove=resume).
     """
 
-    SENTINEL = "/tmp/harness_pause"
+    SENTINEL = "/tmp/blackpearl_pause"
 
     def __init__(self):
         self._paused = False
@@ -1068,7 +1068,7 @@ Metro runs in the first terminal (opened at startup by `main.py`). Build/install
 - [ ] **Step 3: Integration check (manual, VS Code open on the project)**
 
 Run:
-`uv run python -c "from actions.terminal import run_in_terminal; run_in_terminal('echo hello-from-harness')"`
+`uv run python -c "from actions.terminal import run_in_terminal; run_in_terminal('echo hello-from-blackpearl')"`
 Expected: VS Code terminal receives and runs the echo.
 
 - [ ] **Step 4: Commit**
@@ -1333,7 +1333,7 @@ def claude_extension_browse(cfg):
     if not cfg.enable_claude_extension:
         return
     # open the panel only; do NOT open individual conversations (avoids leaking
-    # the harness's own design chat into a the monitoring agent screenshot).
+    # the blackpearl's own design chat into a the monitoring agent screenshot).
     activate_app(_VSCODE)
     time.sleep(RNG.uniform(0.4, 0.8))
     # command palette -> focus Claude view (label may vary by version)
@@ -1371,11 +1371,11 @@ git commit -m "feat: browser excursion, backend pull, gated claude-panel action"
 
 ```python
 # main.py
-"""activity harness — macOS. READ THE SPEC before changing behavior:
-docs/superpowers/specs/2026-07-01-activity-harness-design.md
+"""blackpearl — macOS. READ THE SPEC before changing behavior:
+docs/superpowers/specs/2026-07-01-blackpearl-design.md
 
 Transient only: every edit is reverted; never commits/pushes; leaves the repo as found.
-Stop: PAUSE via `touch /tmp/harness_pause` (resume: rm it), Ctrl+C, or slam a screen corner.
+Stop: PAUSE via `touch /tmp/blackpearl_pause` (resume: rm it), Ctrl+C, or slam a screen corner.
 """
 import os
 import time
@@ -1406,7 +1406,7 @@ def _npm_install(cfg):
     terminal.open_new_terminal()
     terminal.run_in_terminal(f'cd "{cfg.project_path}"')
     terminal.run_in_terminal("npm i")          # accepted risk (pnpm repo)
-    # a human would notice failure and retry with -f; harness always follows up
+    # a human would notice failure and retry with -f; blackpearl always follows up
     time.sleep(RNG.uniform(20, 60))
     terminal.run_in_terminal("npm i -f")
 
@@ -1488,7 +1488,7 @@ def main():
                 vscode._focus()
 
     except KeyboardInterrupt:
-        print("\nStopping — reverting harness edits...")
+        print("\nStopping — reverting blackpearl edits...")
     finally:
         gitsafe.revert_all_touched()
         if stashed:
@@ -1538,9 +1538,9 @@ Insert near the top of `main()` (after `cfg = CONFIG`):
 - [ ] **Step 2: Write `README.md`**
 
 ```markdown
-# Activity Harness (macOS)
+# Blackpearl (macOS)
 
-Red-team presence-simulation harness for testing the monitoring agent. Transient only:
+Red-team presence-simulation blackpearl for testing the monitoring agent. Transient only:
 never commits/pushes; reverts every edit; leaves the repo as found.
 
 ## Setup
@@ -1553,7 +1553,7 @@ never commits/pushes; reverts every edit; leaves the repo as found.
   (separate Space / minimized): `uv run python main.py`
 
 ## Stop / pause
-- Pause: `touch /tmp/harness_pause`  · Resume: `rm /tmp/harness_pause`
+- Pause: `touch /tmp/blackpearl_pause`  · Resume: `rm /tmp/blackpearl_pause`
 - Hard stop: Ctrl+C, or slam the mouse into a screen corner (pyautogui failsafe).
 
 ## Config
@@ -1578,7 +1578,7 @@ Expected: all logic tests pass (config, rhythm, exploration, gitsafe, mouse, key
 With VS Code closed and a *clean* project tree, run `uv run python main.py` for ~2 minutes while watching, then Ctrl+C. Confirm:
 - VS Code opens on the project and Metro starts.
 - Mouse/scroll/navigation look human.
-- After Ctrl+C: `git -C <project> status` shows no harness-introduced changes.
+- After Ctrl+C: `git -C <project> status` shows no blackpearl-introduced changes.
 
 - [ ] **Step 5: Commit**
 
@@ -1831,7 +1831,7 @@ Replace the default reading/nav/excursion branch (the block starting `roll = RNG
 Import smoke (must not run `main()`):
 `uv run python -c "import main, actions.apps as a; assert callable(a.jira_board) and callable(a.open_slack); print('ok')"`
 Full suite: `uv run pytest tests/ -v` → 26 passing (no import regressions).
-Do NOT run `python main.py` (live harness).
+Do NOT run `python main.py` (live blackpearl).
 
 - [ ] **Step 4: Commit**
 

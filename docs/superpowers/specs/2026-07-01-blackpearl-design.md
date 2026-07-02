@@ -1,4 +1,4 @@
-# Activity Harness — Design
+# Blackpearl — Design
 
 **Date:** 2026-07-01
 **Status:** Draft for review
@@ -6,12 +6,12 @@
 
 ## Purpose
 
-Adversarial (red-team) test harness for **the monitoring agent**, an employee-monitoring / attendance
-product built by the author. The harness drives realistic developer activity so we can
+Adversarial (red-team) test blackpearl for **the monitoring agent**, an employee-monitoring / attendance
+product built by the author. The blackpearl drives realistic developer activity so we can
 observe which of the monitoring agent's presence signals can be fooled by synthetic-but-human-looking
 behavior, and therefore where the monitoring agent's detection needs hardening.
 
-The harness makes the monitoring agent see an engineer actively working on the `warp-speed-ai-app`
+The blackpearl makes the monitoring agent see an engineer actively working on the `warp-speed-ai-app`
 Expo/React Native project in VS Code — real input, real work on screen, VS Code in the
 foreground, and real dev processes — paced to read as human, running indefinitely.
 
@@ -30,16 +30,16 @@ foreground, and real dev processes — paced to read as human, running indefinit
 - Tampering with, disabling, or hiding from the the monitoring agent.
 - Hooking/forging the OS screenshot API to inject fabricated frames.
 - Rootkit/process-hiding techniques to evade forensic inspection.
-- **Local anti-forensics** to conceal that the harness ran from someone with access to this
+- **Local anti-forensics** to conceal that the blackpearl ran from someone with access to this
   machine (admin/monitor): no scrubbing git reflog, VS Code local history, or shell history;
   no process hiding. (Remote-invisibility is guaranteed via never-commit/never-push +
   revert; concealment from the local machine's own inspection is not a goal.)
-- **No commits / no fabricated work product** — all edits are reverted; the harness never
+- **No commits / no fabricated work product** — all edits are reverted; the blackpearl never
   commits, pushes, or creates synthetic git history to game integration-based attendance.
 
 ## Target signals (what the monitoring agent collects)
 
-| Signal | How the harness covers it |
+| Signal | How the blackpearl covers it |
 |---|---|
 | Input activity (idle/keystroke/click) | Real mouse (Bézier) + keyboard events, paced by human rhythm |
 | Random screenshots (2–5 min) | Genuine VS Code code view + live build/terminal output on screen |
@@ -117,7 +117,7 @@ Then loop indefinitely (within work hours), choosing weighted, rhythm-paced acti
 
 ## Project exploration walk ("living in the project")
 
-The harness explores `warp-speed-ai-app` the way an engineer actually reads code, over
+The blackpearl explores `warp-speed-ai-app` the way an engineer actually reads code, over
 time — not random file opens. Discovery is **dynamic at runtime** (globbing the live
 filesystem), tuned to this project's actual conventions (from the structural survey):
 
@@ -196,21 +196,21 @@ reading/exploration walk.
    `git checkout -- <file>`.
 
 **Local-only guarantee (never touches the remote):**
-- The harness performs **no `git commit`, no `git add`/staging, no `git push`** — ever.
+- The blackpearl performs **no `git commit`, no `git add`/staging, no `git push`** — ever.
   These are not called anywhere in the code, and a guard rejects them if reached.
 - Because every edit is reverted and nothing is committed or pushed, **nothing reaches the
   remote and nothing enters shared git history**: teammates, the remote, and CI never see
-  any trace of the harness's edits. This is a property of the design, not an added step.
-- The harness stores its own runtime state **outside** the repo (in a scratch dir), so it
+  any trace of the blackpearl's edits. This is a property of the design, not an added step.
+- The blackpearl stores its own runtime state **outside** the repo (in a scratch dir), so it
   never adds its own files to the working tree.
 
 **Git safety net (startup/shutdown):**
 - On startup, capture a baseline. If the working tree is dirty, **auto-stash** the user's
   uncommitted work and restore it on exit (`git stash pop`) — the branch's existing
   changes are preserved intact.
-- The harness **never commits** — all edits are always reverted (no fabricated work
+- The blackpearl **never commits** — all edits are always reverted (no fabricated work
   product; consistent with the no-commit boundary).
-- The harness tracks the exact set of files its edit/break-fix actions touch. Cleanup
+- The blackpearl tracks the exact set of files its edit/break-fix actions touch. Cleanup
   reverts **only those tracked files** — it does NOT blanket `git checkout .`, so the
   user's pre-existing changes and the accepted build/install side-effects
   (`ios/Podfile.lock`, `package-lock.json`) are left untouched.
@@ -278,12 +278,12 @@ can write timestamped actions to a local file if wanted later.
   + `expo run:ios --device` can take minutes, prompt (signing/team/device-trust), or fail
   if the iPhone isn't connected — all treated as best-effort, never blocking the rhythm.
 - **Terminal management (gap #7):** Metro (`pnpm start`) holds a dedicated terminal;
-  builds, `npm i`, and the backend pull each use their own named terminal. The harness
+  builds, `npm i`, and the backend pull each use their own named terminal. The blackpearl
   tracks which terminal is which and focuses the right one.
 - **Yield to a returning human (gap #2):** a `PAUSE_HOTKEY` immediately suspends the
-  harness so a real user can take over without fighting it for mouse/keyboard; resume via
+  blackpearl so a real user can take over without fighting it for mouse/keyboard; resume via
   the same hotkey. (pyautogui corner-slam failsafe remains as a hard abort.)
-- **Run off-screen (gap #3):** the harness runs from a terminal that is NOT the captured
+- **Run off-screen (gap #3):** the blackpearl runs from a terminal that is NOT the captured
   VS Code window (separate Space / minimized), so screenshots don't reveal `main.py`.
   ⚠️ **Claude-extension caution:** the "browse old chats" action can surface *this design
   conversation* in a screenshot — it will be scoped to avoid opening chats, or disabled by
@@ -296,7 +296,7 @@ can write timestamped actions to a local file if wanted later.
 
 ## Detection vectors & honest limitations
 
-This harness makes human-*looking* signals convincing; it does **not** claim to be
+This blackpearl makes human-*looking* signals convincing; it does **not** claim to be
 undetectable. Known ways the monitoring agent can still catch it (which is useful signal for hardening
 the monitoring agent):
 

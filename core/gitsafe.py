@@ -1,8 +1,8 @@
 import subprocess
 
 # commit/push are barred (they reach shared history / the remote). `add` (staging)
-# is ALLOWED — it is local-only and is the harness's baseline mechanism: the user's
-# work is staged once at startup, and harness edits are reverted back to that staged
+# is ALLOWED — it is local-only and is the blackpearl's baseline mechanism: the user's
+# work is staged once at startup, and blackpearl edits are reverted back to that staged
 # baseline. Nothing is ever committed or pushed.
 _FORBIDDEN = {"commit", "push"}
 
@@ -18,7 +18,7 @@ class GitSafe:
 
     def run(self, args: list[str]) -> subprocess.CompletedProcess:
         if args and args[0] in _FORBIDDEN:
-            raise ForbiddenGitOp(f"git {args[0]} is not permitted by the harness")
+            raise ForbiddenGitOp(f"git {args[0]} is not permitted by the blackpearl")
         return subprocess.run(
             ["git", *args], cwd=self.repo,
             capture_output=True, text=True, check=False,
@@ -29,8 +29,8 @@ class GitSafe:
         return bool(out.strip())
 
     def stage_all(self) -> None:
-        """Stage every current change (`git add -A`) as the baseline the harness edits
-        against. The user's work then lives in the index; reverting a harness edit
+        """Stage every current change (`git add -A`) as the baseline the blackpearl edits
+        against. The user's work then lives in the index; reverting a blackpearl edit
         restores the file to this staged baseline rather than to HEAD."""
         self.run(["add", "-A"])
 
@@ -42,7 +42,7 @@ class GitSafe:
 
     def revert_file(self, path: str) -> subprocess.CompletedProcess:
         """Restore the working-tree file from the index (the staged baseline), undoing
-        any harness edit while preserving the user's staged work for that file."""
+        any blackpearl edit while preserving the user's staged work for that file."""
         return self.run(["checkout", "--", path])
 
     def note_touched(self, path: str) -> None:

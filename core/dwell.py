@@ -15,7 +15,7 @@ def dwell(seconds: float,
     threshold. Returns the number of activity bursts performed.
 
     If `is_paused` is given and returns True, the dwell stops early WITHOUT firing
-    activity — so the harness doesn't keep jittering while a real user is active
+    activity — so the blackpearl doesn't keep jittering while a real user is active
     (the caller's loop then handles the pause)."""
     end = clock() + seconds
     bursts = 0

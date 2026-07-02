@@ -1,9 +1,9 @@
 # main.py
-"""activity harness — macOS. READ THE SPEC before changing behavior:
-docs/superpowers/specs/2026-07-01-activity-harness-design.md
+"""blackpearl — macOS. READ THE SPEC before changing behavior:
+docs/superpowers/specs/2026-07-01-blackpearl-design.md
 
 Transient only: every edit is reverted; never commits/pushes; leaves the repo as found.
-Stop: PAUSE via `touch /tmp/harness_pause` (resume: rm it), Ctrl+C, or slam a screen corner.
+Stop: PAUSE via `touch /tmp/blackpearl_pause` (resume: rm it), Ctrl+C, or slam a screen corner.
 """
 import os
 import subprocess
@@ -65,7 +65,7 @@ def _npm_install(cfg):
     terminal.open_new_terminal()
     terminal.run_in_terminal(f'cd "{cfg.project_path}"')
     terminal.run_in_terminal("npm i")          # accepted risk (pnpm repo)
-    # a human would notice failure and retry with -f; harness always follows up
+    # a human would notice failure and retry with -f; blackpearl always follows up
     time.sleep(RNG.uniform(20, 60))
     terminal.run_in_terminal("npm i -f")
 
@@ -79,7 +79,7 @@ def main():
         raise SystemExit(f"Project not a git repo: {cfg.project_path}")
 
     # Make `pkill`/SIGTERM run the same clean shutdown as Ctrl+C (SIGINT) — otherwise
-    # SIGTERM kills the process WITHOUT reverting, leaving harness edits in the working
+    # SIGTERM kills the process WITHOUT reverting, leaving blackpearl edits in the working
     # tree that the next run would stage as its baseline (i.e. not a fresh start).
     import signal
 
@@ -88,12 +88,12 @@ def main():
 
     signal.signal(signal.SIGTERM, _terminate)
 
-    ignore_hours = os.environ.get("HARNESS_IGNORE_HOURS") == "1"
-    # HARNESS_TEST=1: fast, file-open-heavy profile for watching it work quickly.
+    ignore_hours = os.environ.get("BLACKPEARL_IGNORE_HOURS") == "1"
+    # BLACKPEARL_TEST=1: fast, file-open-heavy profile for watching it work quickly.
     # It ONLY overrides cadence — the realistic default profile is unchanged.
     # Implies work-hours bypass so you can test at any time.
     from dataclasses import replace
-    if os.environ.get("HARNESS_TEST") == "1":
+    if os.environ.get("BLACKPEARL_TEST") == "1":
         # ONLY difference from a normal run is SPEED — every feature/behavior
         # (auto-pause, Claude, weights, safety) is identical to normal.
         cfg = replace(
@@ -104,12 +104,12 @@ def main():
             edit_min_gap=45.0,              # edits/typing come around sooner
             jira_slack_interval=(40.0, 90.0),  # see the Jira->Slack cycle quickly
         )
-        print("HARNESS_TEST=1 → FAST profile (short gaps only; all other behavior same as normal).")
-    if os.environ.get("HARNESS_DEBUG") == "1":
+        print("BLACKPEARL_TEST=1 → FAST profile (short gaps only; all other behavior same as normal).")
+    if os.environ.get("BLACKPEARL_DEBUG") == "1":
         cfg = replace(cfg, debug_log=True)
-        print("HARNESS_DEBUG=1 → logging each action.")
+        print("BLACKPEARL_DEBUG=1 → logging each action.")
     if ignore_hours:
-        print("HARNESS_IGNORE_HOURS=1 → work-hours/day gate bypassed.")
+        print("BLACKPEARL_IGNORE_HOURS=1 → work-hours/day gate bypassed.")
     src_root = os.path.join(cfg.project_path, "src")
     gitsafe = GitSafe(cfg.project_path)
     pause = PauseController(auto_pause=cfg.enable_auto_pause,
@@ -152,7 +152,7 @@ def main():
 
     def _iteration():
         """One loop step. Returns early (like the old `continue`) after any action.
-        Runs under a per-iteration guard so one failing action never stops the harness."""
+        Runs under a per-iteration guard so one failing action never stops the blackpearl."""
         nonlocal was_paused, idle_announced, staged_baseline, files_since_claude, next_app
 
         if pause.paused:
@@ -163,7 +163,7 @@ def main():
             if not idle_announced:
                 print(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
                       f"weekdays {cfg.work_days}). Nothing will run until then. "
-                      f"Run with HARNESS_IGNORE_HOURS=1 to test now.")
+                      f"Run with BLACKPEARL_IGNORE_HOURS=1 to test now.")
                 idle_announced = True
             time.sleep(60.0)
             return
@@ -174,7 +174,7 @@ def main():
             gitsafe.stage_all()
             staged_baseline = True
             print("Staged current changes as baseline (git add -A). Your work is in "
-                  "the index; harness edits revert to it. Never commits/pushes.")
+                  "the index; blackpearl edits revert to it. Never commits/pushes.")
 
         # resuming after a pause: re-assert the project's VS Code window before acting.
         if was_paused:
@@ -277,7 +277,7 @@ def main():
 
     try:
         while True:
-            # Per-iteration guard: a single action blowing up must NOT stop the harness.
+            # Per-iteration guard: a single action blowing up must NOT stop the blackpearl.
             # It runs continuously until you manually stop it (Ctrl+C / pkill / corner-slam).
             try:
                 _iteration()
@@ -287,18 +287,18 @@ def main():
                 print(f"  ! recovered from error, continuing: {e!r}")
                 time.sleep(1.0)
     except KeyboardInterrupt:
-        print("\nStopping — reverting harness edits...")
+        print("\nStopping — reverting blackpearl edits...")
     finally:
         # Shield cleanup from a SECOND Ctrl+C or pkill: ignore SIGINT/SIGTERM while the
         # git revert runs, so it completes atomically and always leaves the tree clean.
         _pi = signal.signal(signal.SIGINT, signal.SIG_IGN)
         _pt = signal.signal(signal.SIGTERM, signal.SIG_IGN)
         try:
-            gitsafe.revert_all_touched()   # harness edits -> back to your staged baseline
+            gitsafe.revert_all_touched()   # blackpearl edits -> back to your staged baseline
             pause.stop()
             if metro_started and cfg.stop_metro_on_exit:
                 _stop_metro()               # stop the Metro WE started (leaves yours alone)
-            print("Done. Harness edits reverted to your staged baseline "
+            print("Done. Blackpearl edits reverted to your staged baseline "
                   "(your work is staged; `git checkout .` drops anything left over).")
         finally:
             signal.signal(signal.SIGINT, _pi)
