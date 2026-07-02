@@ -84,6 +84,10 @@ class Config:
     editor_x_range: tuple[float, float] = (0.25, 0.64)
     editor_y_range: tuple[float, float] = (0.24, 0.60)
 
+    # on shutdown, stop Metro (port 8081) IF the harness started it (leaves a Metro
+    # you were already running alone).
+    stop_metro_on_exit: bool = True
+
     # auto-pause when a real person uses the machine; resume after this many seconds
     # of no genuine (hardware) input. The harness's own injected input doesn't count.
     enable_auto_pause: bool = True

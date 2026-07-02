@@ -44,6 +44,16 @@ def _metro_running() -> bool:
     return res.returncode == 0 and bool(res.stdout.strip())
 
 
+def _stop_metro():
+    """Kill whatever is listening on Metro's port 8081 (used on shutdown if we started it)."""
+    pids = subprocess.run(
+        ["lsof", "-tiTCP:8081", "-sTCP:LISTEN"],
+        capture_output=True, text=True, check=False,
+    ).stdout.split()
+    for pid in pids:
+        subprocess.run(["kill", pid], check=False)
+
+
 def _ios_build_sequence(cfg):
     terminal.open_new_terminal()
     terminal.run_in_terminal(f'cd "{cfg.project_path}"')
@@ -121,9 +131,11 @@ def main():
     vscode.open_project(cfg.project_path)
     # Start Metro only if it isn't already running (port 8081). If the project's
     # VS Code + Metro are already up, reuse them instead of spawning a duplicate.
+    metro_started = False
     if not _metro_running():
         terminal.open_new_terminal()
         terminal.run_in_terminal(f'cd "{cfg.project_path}" && pnpm start')
+        metro_started = True
 
     build_timer = IntervalTimer(cfg.build_interval)
     install_timer = IntervalTimer(cfg.install_interval)
@@ -274,6 +286,8 @@ def main():
         try:
             gitsafe.revert_all_touched()   # harness edits -> back to your staged baseline
             pause.stop()
+            if metro_started and cfg.stop_metro_on_exit:
+                _stop_metro()               # stop the Metro WE started (leaves yours alone)
             print("Done. Harness edits reverted to your staged baseline "
                   "(your work is staged; `git checkout .` drops anything left over).")
         finally:
