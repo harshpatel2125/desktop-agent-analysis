@@ -67,6 +67,17 @@ def main():
         raise SystemExit("VS Code 'code' CLI not found. Run 'Shell Command: Install code command in PATH'.")
     if not os.path.isdir(os.path.join(cfg.project_path, ".git")):
         raise SystemExit(f"Project not a git repo: {cfg.project_path}")
+
+    # Make `pkill`/SIGTERM run the same clean shutdown as Ctrl+C (SIGINT) — otherwise
+    # SIGTERM kills the process WITHOUT reverting, leaving harness edits in the working
+    # tree that the next run would stage as its baseline (i.e. not a fresh start).
+    import signal
+
+    def _terminate(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _terminate)
+
     ignore_hours = os.environ.get("HARNESS_IGNORE_HOURS") == "1"
     # HARNESS_TEST=1: fast, file-open-heavy profile for watching it work quickly.
     # It ONLY overrides cadence — the realistic default profile is unchanged.
@@ -256,18 +267,18 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping — reverting harness edits...")
     finally:
-        # Shield cleanup from a SECOND Ctrl+C: ignore SIGINT while the git
-        # revert/stash-pop run, so they complete atomically and never leave a
-        # half-applied stash. (Safe: this is the main thread.)
-        import signal
-        _prev = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        # Shield cleanup from a SECOND Ctrl+C or pkill: ignore SIGINT/SIGTERM while the
+        # git revert runs, so it completes atomically and always leaves the tree clean.
+        _pi = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        _pt = signal.signal(signal.SIGTERM, signal.SIG_IGN)
         try:
             gitsafe.revert_all_touched()   # harness edits -> back to your staged baseline
             pause.stop()
             print("Done. Harness edits reverted to your staged baseline "
                   "(your work is staged; `git checkout .` drops anything left over).")
         finally:
-            signal.signal(signal.SIGINT, _prev)
+            signal.signal(signal.SIGINT, _pi)
+            signal.signal(signal.SIGTERM, _pt)
 
 
 if __name__ == "__main__":
