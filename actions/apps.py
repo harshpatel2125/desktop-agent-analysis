@@ -129,18 +129,33 @@ def claude_extension_browse(cfg):
     activate_app(_VSCODE)
 
 
+def _set_clipboard(text: str):
+    subprocess.run(["pbcopy"], input=text, text=True, check=False)
+
+
+def _get_clipboard() -> str:
+    return subprocess.run(["pbpaste"], capture_output=True, text=True, check=False).stdout
+
+
 def jira_board(cfg):
-    """Open a new Chrome tab on the assigned Jira board (view-only)."""
+    """Open a new Chrome tab on the assigned Jira board (view-only).
+
+    Pastes the URL into the address bar (Cmd+V) instead of typing it char-by-char —
+    faster and no keystroke-timing signature. Restores your clipboard afterward.
+    """
     if not cfg.enable_jira:
         return
     subprocess.run(["open", "-a", _CHROME], check=False)  # launch or focus Chrome
     time.sleep(RNG.uniform(1.0, 2.0))
-    hotkey("command", "t")                       # new tab
+    prev_clip = _get_clipboard()                  # save the user's clipboard
+    _set_clipboard(cfg.jira_url)
+    hotkey("command", "t")                        # new tab (address bar focused)
     time.sleep(RNG.uniform(0.4, 0.8))
-    type_text(cfg.jira_url)
+    hotkey("command", "v")                        # paste the URL — no manual typing
     time.sleep(RNG.uniform(0.2, 0.5))
     pyautogui.press("enter")
-    time.sleep(RNG.uniform(1.5, 3.0))                      # let the board load
+    time.sleep(RNG.uniform(1.5, 3.0))             # let the board load
+    _set_clipboard(prev_clip)                     # restore the user's clipboard
 
 
 def open_slack(cfg):
