@@ -296,4 +296,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # Catch Ctrl+C that lands during startup (before the loop's own try/except),
+    # so early aborts exit quietly instead of dumping a traceback. Nothing is staged
+    # or edited yet at that point, so there's nothing to revert here.
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nStopped during startup (nothing was changed).")
