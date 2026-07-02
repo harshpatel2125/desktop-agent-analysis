@@ -148,134 +148,144 @@ def main():
     was_paused = False
     staged_baseline = False
     files_since_claude = 0
-    try:
-        while True:
-            if pause.paused:
-                was_paused = True
-                time.sleep(2.0)
-                continue
-            if cfg.enable_work_hours and not ignore_hours and not is_active_now(cfg, datetime.now()):
-                if not idle_announced:
-                    print(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
-                          f"weekdays {cfg.work_days}). Nothing will run until then. "
-                          f"Run with HARNESS_IGNORE_HOURS=1 to test now.")
-                    idle_announced = True
-                time.sleep(60.0)
-                continue
-            idle_announced = False
+    from core.platform_mac import is_frontmost
 
-            # First time the harness actually starts working (user has gone + idle):
-            # stage the current changes as the baseline. The user's work then lives in
-            # the index; harness edits are reverted back to this staged state.
-            if not staged_baseline:
-                gitsafe.stage_all()
-                staged_baseline = True
-                print("Staged current changes as baseline (git add -A). Your work is in "
-                      "the index; harness edits revert to it. Never commits/pushes.")
+    def _iteration():
+        """One loop step. Returns early (like the old `continue`) after any action.
+        Runs under a per-iteration guard so one failing action never stops the harness."""
+        nonlocal was_paused, idle_announced, staged_baseline, files_since_claude, next_app
 
-            # resuming after a pause (real user was active): re-assert the project's
-            # VS Code window before acting — reuse it if open, open it if not.
-            if was_paused:
-                vscode.open_project(cfg.project_path)
-                was_paused = False
+        if pause.paused:
+            was_paused = True
+            time.sleep(2.0)
+            return
+        if cfg.enable_work_hours and not ignore_hours and not is_active_now(cfg, datetime.now()):
+            if not idle_announced:
+                print(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
+                      f"weekdays {cfg.work_days}). Nothing will run until then. "
+                      f"Run with HARNESS_IGNORE_HOURS=1 to test now.")
+                idle_announced = True
+            time.sleep(60.0)
+            return
+        idle_announced = False
 
-            def log(msg):
-                if cfg.debug_log:
-                    print(f"  · {msg}")
+        # First active iteration: stage current changes as the baseline (git add -A).
+        if not staged_baseline:
+            gitsafe.stage_all()
+            staged_baseline = True
+            print("Staged current changes as baseline (git add -A). Your work is in "
+                  "the index; harness edits revert to it. Never commits/pushes.")
 
-            state_dwell = lambda: dwell(RNG.uniform(*cfg.state_dwell),
-                                        mouse.micro_jitter,
-                                        gap_range=cfg.micro_activity_gap,
-                                        is_paused=lambda: pause.paused)
+        # resuming after a pause: re-assert the project's VS Code window before acting.
+        if was_paused:
+            vscode.open_project(cfg.project_path)
+            was_paused = False
 
-            time.sleep(RNG.uniform(*cfg.action_gap))
+        def log(msg):
+            if cfg.debug_log:
+                print(f"  · {msg}")
 
-            # hourly-ish heavy actions
-            if build_timer.due():
-                log("ios build")
-                _ios_build_sequence(cfg)
-                build_timer.reset()
-                continue
-            if cfg.enable_npm_install and install_timer.due():
-                log("npm install")
-                _npm_install(cfg)
-                install_timer.reset()
-                continue
-            if cfg.enable_backend_pull and backend_timer.due():
-                log("backend pull")
-                apps.backend_pull(cfg)
-                backend_timer.reset()
-                continue
+        state_dwell = lambda: dwell(RNG.uniform(*cfg.state_dwell),
+                                    mouse.micro_jitter,
+                                    gap_range=cfg.micro_activity_gap,
+                                    is_paused=lambda: pause.paused)
 
-            # timed Jira/Slack cycle: ~25 min after start open Jira, ~20 min later
-            # Slack, then alternate forever. Files+Claude fill the time in between.
-            if apps_timer.due():
-                if next_app == "jira" and cfg.enable_jira:
-                    log("jira board (timed)")
-                    apps.jira_board(cfg)
-                    state_dwell()
-                    next_app = "slack"
-                elif next_app == "slack" and cfg.enable_slack:
-                    log("slack (timed)")
-                    apps.open_slack(cfg)
-                    state_dwell()
-                    next_app = "jira"
-                else:
-                    next_app = "slack" if next_app == "jira" else "jira"  # disabled → flip
-                apps_timer.reset()
-                continue
+        time.sleep(RNG.uniform(*cfg.action_gap))
 
-            # editing (transient), gated by min-gap + sampled interval
-            if cfg.enable_editing and edit_gate.due():
-                target = explore.next_file() or RNG.choice(pmap.all_files)
-                if RNG.random() < cfg.break_fix_probability:
-                    log(f"break/fix {os.path.relpath(target, cfg.project_path)}")
-                    vscode.break_and_fix(gitsafe, target, cfg.project_path)
-                else:
-                    log(f"edit/revert {os.path.relpath(target, cfg.project_path)}")
-                    vscode.edit_and_revert(gitsafe, target, cfg.project_path)
-                edit_gate.fired()
-                continue
+        # hourly-ish heavy actions
+        if build_timer.due():
+            log("ios build")
+            _ios_build_sequence(cfg)
+            build_timer.reset()
+            return
+        if cfg.enable_npm_install and install_timer.due():
+            log("npm install")
+            _npm_install(cfg)
+            install_timer.reset()
+            return
+        if cfg.enable_backend_pull and backend_timer.due():
+            log("backend pull")
+            apps.backend_pull(cfg)
+            backend_timer.reset()
+            return
 
-            # default: mostly files + Claude, with light in-editor navigation.
-            roll = RNG.random()
-            # interleave: after ~N file steps, force a Claude step regardless of roll
-            if cfg.enable_claude_extension and files_since_claude >= cfg.files_per_claude:
-                log(f"CLAUDE browse (after {files_since_claude} file steps)")
-                apps.claude_extension_browse(cfg)
-                files_since_claude = 0
+        # timed Jira/Slack cycle: alternate Jira/Slack forever; files+Claude fill between.
+        if apps_timer.due():
+            if next_app == "jira" and cfg.enable_jira:
+                log("jira board (timed)")
+                apps.jira_board(cfg)
                 state_dwell()
-            elif roll < cfg.read_file_prob:                     # ~40%: open + read a file
-                target = explore.next_file()
-                if target:
-                    log(f"read file {os.path.relpath(target, cfg.project_path)}")
-                    vscode.open_file(os.path.relpath(target, cfg.project_path))
-                    explore.mark_read(target)
-                    vscode.read_scroll(RNG.choice(["slow", "slow", "skim"]),
-                                       line_count=_line_count(target))
-                    files_since_claude += 1
-                    state_dwell()
-                else:
-                    log("read file (none left to explore)")
-            elif roll < cfg.read_file_prob + cfg.claude_prob and cfg.enable_claude_extension:
-                log("CLAUDE browse")
-                apps.claude_extension_browse(cfg)               # ~40%: browse Claude chat
-                files_since_claude = 0
+                next_app = "slack"
+            elif next_app == "slack" and cfg.enable_slack:
+                log("slack (timed)")
+                apps.open_slack(cfg)
                 state_dwell()
-            elif roll < 0.98:
-                log("navigate")
-                vscode.navigate()
+                next_app = "jira"
+            else:
+                next_app = "slack" if next_app == "jira" else "jira"  # disabled → flip
+            apps_timer.reset()
+            return
+
+        # editing (transient), gated by min-gap + sampled interval
+        if cfg.enable_editing and edit_gate.due():
+            target = explore.next_file() or RNG.choice(pmap.all_files)
+            if RNG.random() < cfg.break_fix_probability:
+                log(f"break/fix {os.path.relpath(target, cfg.project_path)}")
+                vscode.break_and_fix(gitsafe, target, cfg.project_path)
+            else:
+                log(f"edit/revert {os.path.relpath(target, cfg.project_path)}")
+                vscode.edit_and_revert(gitsafe, target, cfg.project_path)
+            edit_gate.fired()
+            return
+
+        # default: mostly files + Claude, with light in-editor navigation.
+        roll = RNG.random()
+        if cfg.enable_claude_extension and files_since_claude >= cfg.files_per_claude:
+            log(f"CLAUDE browse (after {files_since_claude} file steps)")
+            apps.claude_extension_browse(cfg)
+            files_since_claude = 0
+            state_dwell()
+        elif roll < cfg.read_file_prob:                     # ~40%: open + read a file
+            target = explore.next_file()
+            if target:
+                log(f"read file {os.path.relpath(target, cfg.project_path)}")
+                vscode.open_file(os.path.relpath(target, cfg.project_path))
+                explore.mark_read(target)
+                vscode.read_scroll(RNG.choice(["slow", "slow", "skim"]),
+                                   line_count=_line_count(target))
+                files_since_claude += 1
                 state_dwell()
             else:
-                log("scroll")
-                vscode.read_scroll("slow")
-                state_dwell()
+                log("read file (none left to explore)")
+        elif roll < cfg.read_file_prob + cfg.claude_prob and cfg.enable_claude_extension:
+            log("CLAUDE browse")
+            apps.claude_extension_browse(cfg)               # ~40%: browse Claude chat
+            files_since_claude = 0
+            state_dwell()
+        elif roll < 0.98:
+            log("navigate")
+            vscode.navigate()
+            state_dwell()
+        else:
+            log("scroll")
+            vscode.read_scroll("slow")
+            state_dwell()
 
-            # foreground watcher: if focus drifted off VS Code, come back
-            from core.platform_mac import is_frontmost
-            if not is_frontmost("Code") and not is_frontmost("Visual Studio Code"):
-                vscode._focus()
+        # foreground watcher: if focus drifted off VS Code, come back
+        if not is_frontmost("Code") and not is_frontmost("Visual Studio Code"):
+            vscode._focus()
 
+    try:
+        while True:
+            # Per-iteration guard: a single action blowing up must NOT stop the harness.
+            # It runs continuously until you manually stop it (Ctrl+C / pkill / corner-slam).
+            try:
+                _iteration()
+            except KeyboardInterrupt:
+                raise                       # manual stop -> clean shutdown below
+            except Exception as e:
+                print(f"  ! recovered from error, continuing: {e!r}")
+                time.sleep(1.0)
     except KeyboardInterrupt:
         print("\nStopping — reverting harness edits...")
     finally:
