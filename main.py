@@ -2,7 +2,9 @@
 """blackpearl — macOS. READ THE SPEC before changing behavior:
 docs/superpowers/specs/2026-07-01-blackpearl-design.md
 
-Transient only: every edit is reverted; never commits/pushes; leaves the repo as found.
+Read-only w.r.t. source: no file editing, no TypeScript-breaking, no Claude commands/
+prompts — only reading, scrolling, navigating, and running real (non-code-modifying)
+dev commands (builds, installs, git pull). Never commits/pushes.
 Stop: PAUSE via `touch /tmp/blackpearl_pause` (resume: rm it), Ctrl+C, or slam a screen corner.
 """
 import os
@@ -15,11 +17,11 @@ import pyautogui
 from config import CONFIG, is_active_now
 from core.dwell import dwell
 from core.exploration import build_project_map, ExplorationState
-from core.gitsafe import GitSafe
 from core import mouse
 from core.cursor import CursorKeeper
+from core.pacing import paced_sleep
 from core.platform_mac import PauseController
-from core.rhythm import IntervalTimer, EditGate
+from core.rhythm import IntervalTimer
 from core.rng import RNG
 from actions import vscode, apps, terminal
 
@@ -62,17 +64,23 @@ def _ios_build_sequence(cfg):
     terminal.run_in_terminal(f'pnpm ios:device "{cfg.ios_device}"')
 
 
-def _npm_install(cfg):
+def _npm_install(cfg, is_paused=lambda: False):
     terminal.open_new_terminal()
     terminal.run_in_terminal(f'cd "{cfg.project_path}"')
     terminal.run_in_terminal("npm i")          # accepted risk (pnpm repo)
-    # a human would notice failure and retry with -f; blackpearl always follows up
-    time.sleep(RNG.uniform(20, 60))
-    terminal.run_in_terminal("npm i -f")
+    # a human would notice failure and retry with -f; blackpearl always follows up —
+    # but a real user taking over cuts the wait short rather than grinding through it.
+    if paced_sleep(RNG.uniform(20, 60), is_paused):
+        terminal.run_in_terminal("npm i -f")
 
 
 def main():
     cfg = CONFIG
+    # Must happen before ANY pyautogui call: wraps input-posting functions so
+    # PauseController can tell "the harness just acted" apart from "a human just acted".
+    from core.injected import install as install_input_tracking
+    install_input_tracking()
+
     import shutil
     if not shutil.which("code"):
         raise SystemExit("VS Code 'code' CLI not found. Run 'Shell Command: Install code command in PATH'.")
@@ -102,7 +110,6 @@ def main():
             action_gap=(3.0, 8.0),          # ~seconds between actions
             state_dwell=(15.0, 30.0),       # short holds
             micro_activity_gap=(5.0, 10.0),  # frequent jitter
-            edit_min_gap=45.0,              # edits/typing come around sooner
             jira_slack_interval=(40.0, 90.0),  # see the Jira->Slack cycle quickly
         )
         print("BLACKPEARL_TEST=1 → FAST profile (short gaps only; all other behavior same as normal).")
@@ -112,9 +119,15 @@ def main():
     if ignore_hours:
         print("BLACKPEARL_IGNORE_HOURS=1 → work-hours/day gate bypassed.")
     src_root = os.path.join(cfg.project_path, "src")
-    gitsafe = GitSafe(cfg.project_path)
+
+    def _pause_error(exc):
+        # A dead poll thread freezes `paused` forever — exactly what "auto-pause
+        # stopped working" looks like from the outside. Always surface it.
+        print(f"  ! auto-pause check failed, retrying: {exc!r}")
+
     pause = PauseController(auto_pause=cfg.enable_auto_pause,
-                           resume_after=cfg.resume_after_idle)
+                           resume_after=cfg.resume_after_idle,
+                           on_error=_pause_error)
     pause.start()
     if cfg.enable_auto_pause:
         print(f"Auto-pause ON: backs off when you use the machine, resumes after "
@@ -125,14 +138,12 @@ def main():
     if cfg.enable_cursor_keeper:
         cursor = CursorKeeper(move_fn=mouse.micro_jitter,
                               is_paused=lambda: pause.paused,
-                              interval=cfg.cursor_move_interval)
+                              interval=cfg.cursor_move_interval,
+                              on_error=lambda exc: print(f"  ! cursor nudge failed: {exc!r}"))
         cursor.start()
     if cfg.enable_claude_extension:
-        print("WARNING: Claude browsing is ON — screenshots show your real chat history.")
-        if cfg.enable_claude_prompt:
-            print("WARNING: Claude PROMPT-SENDING is ON — it types + sends real messages; "
-                  "with auto-edit on, Claude may modify your code. Turn off auto-edit, or "
-                  "set enable_claude_prompt=False in config.py.")
+        print("WARNING: Claude browsing is ON — screenshots show your real chat history "
+              "(visual-only: scrolling and switching chats, never typing/sending anything).")
 
     pmap = build_project_map(src_root)
     explore = ExplorationState(pmap)
@@ -151,18 +162,16 @@ def main():
     backend_timer = IntervalTimer(cfg.backend_pull_interval)
     apps_timer = IntervalTimer(cfg.jira_slack_interval)  # timed Jira/Slack cycle
     next_app = "jira"                                    # first excursion is Jira
-    edit_gate = EditGate(cfg)
 
     idle_announced = False
     was_paused = False
-    staged_baseline = False
     files_since_claude = 0
     from core.platform_mac import is_frontmost
 
     def _iteration():
         """One loop step. Returns early (like the old `continue`) after any action.
         Runs under a per-iteration guard so one failing action never stops the blackpearl."""
-        nonlocal was_paused, idle_announced, staged_baseline, files_since_claude, next_app
+        nonlocal was_paused, idle_announced, files_since_claude, next_app
 
         if pause.paused:
             was_paused = True
@@ -178,13 +187,6 @@ def main():
             return
         idle_announced = False
 
-        # First active iteration: stage current changes as the baseline (git add -A).
-        if not staged_baseline:
-            gitsafe.stage_all()
-            staged_baseline = True
-            print("Staged current changes as baseline (git add -A). Your work is in "
-                  "the index; blackpearl edits revert to it. Never commits/pushes.")
-
         # resuming after a pause: re-assert the project's VS Code window before acting.
         if was_paused:
             vscode.open_project(cfg.project_path)
@@ -194,10 +196,11 @@ def main():
             if cfg.debug_log:
                 print(f"  · {msg}")
 
+        is_paused = lambda: pause.paused
         state_dwell = lambda: dwell(RNG.uniform(*cfg.state_dwell),
                                     mouse.micro_jitter,
                                     gap_range=cfg.micro_activity_gap,
-                                    is_paused=lambda: pause.paused)
+                                    is_paused=is_paused)
 
         time.sleep(RNG.uniform(*cfg.action_gap))
 
@@ -209,12 +212,12 @@ def main():
             return
         if cfg.enable_npm_install and install_timer.due():
             log("npm install")
-            _npm_install(cfg)
+            _npm_install(cfg, is_paused=is_paused)
             install_timer.reset()
             return
         if cfg.enable_backend_pull and backend_timer.due():
             log("backend pull")
-            apps.backend_pull(cfg)
+            apps.backend_pull(cfg, is_paused=is_paused)
             backend_timer.reset()
             return
 
@@ -233,18 +236,6 @@ def main():
             else:
                 next_app = "slack" if next_app == "jira" else "jira"  # disabled → flip
             apps_timer.reset()
-            return
-
-        # editing (transient), gated by min-gap + sampled interval
-        if cfg.enable_editing and edit_gate.due():
-            target = explore.next_file() or RNG.choice(pmap.all_files)
-            if RNG.random() < cfg.break_fix_probability:
-                log(f"break/fix {os.path.relpath(target, cfg.project_path)}")
-                vscode.break_and_fix(gitsafe, target, cfg.project_path)
-            else:
-                log(f"edit/revert {os.path.relpath(target, cfg.project_path)}")
-                vscode.edit_and_revert(gitsafe, target, cfg.project_path)
-            edit_gate.fired()
             return
 
         # default: mostly files + Claude, with light in-editor navigation.
@@ -268,7 +259,7 @@ def main():
                 log("read file (none left to explore)")
         elif roll < cfg.read_file_prob + cfg.claude_prob and cfg.enable_claude_extension:
             log("CLAUDE browse")
-            apps.claude_extension_browse(cfg)               # ~40%: browse Claude chat
+            apps.claude_extension_browse(cfg)  # ~40%: Claude chat (visual-only)
             files_since_claude = 0
             state_dwell()
         elif roll < 0.98:
@@ -296,21 +287,18 @@ def main():
                 print(f"  ! recovered from error, continuing: {e!r}")
                 time.sleep(1.0)
     except KeyboardInterrupt:
-        print("\nStopping — reverting blackpearl edits...")
+        print("\nStopping...")
     finally:
-        # Shield cleanup from a SECOND Ctrl+C or pkill: ignore SIGINT/SIGTERM while the
-        # git revert runs, so it completes atomically and always leaves the tree clean.
+        # Shield cleanup from a SECOND Ctrl+C or pkill: ignore SIGINT/SIGTERM while it runs.
         _pi = signal.signal(signal.SIGINT, signal.SIG_IGN)
         _pt = signal.signal(signal.SIGTERM, signal.SIG_IGN)
         try:
-            gitsafe.revert_all_touched()   # blackpearl edits -> back to your staged baseline
             pause.stop()
             if cursor is not None:
                 cursor.stop()
             if metro_started and cfg.stop_metro_on_exit:
                 _stop_metro()               # stop the Metro WE started (leaves yours alone)
-            print("Done. Blackpearl edits reverted to your staged baseline "
-                  "(your work is staged; `git checkout .` drops anything left over).")
+            print("Done. No file edits were made (editing is disabled) — nothing to revert.")
         finally:
             signal.signal(signal.SIGINT, _pi)
             signal.signal(signal.SIGTERM, _pt)

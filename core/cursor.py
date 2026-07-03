@@ -9,13 +9,16 @@ class CursorKeeper:
     This guarantees the cursor keeps moving even during the main loop's long sleeps
     (edit "persist" waits, backend linger, npm-install waits, etc.), so no idle gap
     forms. It SKIPS while `is_paused()` is True, so it never fights a real user who has
-    taken over the machine. Move errors are swallowed so the keeper never dies.
+    taken over the machine. A move error is reported via `on_error` (not silently
+    dropped — a swallowed exception here looks exactly like "the cursor stopped moving
+    for no reason") but never kills the thread.
     """
 
-    def __init__(self, move_fn, is_paused, interval=(12.0, 20.0)):
+    def __init__(self, move_fn, is_paused, interval=(12.0, 20.0), on_error=None):
         self._move = move_fn
         self._is_paused = is_paused
         self._interval = interval           # (min, max) seconds; max must stay <= target
+        self._on_error = on_error or (lambda exc: None)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -32,5 +35,5 @@ class CursorKeeper:
             if not self._is_paused():
                 try:
                     self._move()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._on_error(exc)

@@ -1,5 +1,4 @@
 # actions/vscode.py
-import os
 import shutil
 import subprocess
 import time
@@ -10,15 +9,23 @@ from config import CONFIG
 from core import mouse
 from core.keyboard_sim import type_text
 from core.keys import hotkey
-from core.platform_mac import activate_app
+from core.platform_mac import activate_app, is_vscode_frontmost, wait_until_frontmost
 from core.rng import RNG
 
 _VSCODE = "Visual Studio Code"
 
 
+class FocusLostError(RuntimeError):
+    """VS Code never actually came to the foreground. Callers must NOT type/click when
+    this is raised — that is exactly what previously landed keystrokes in whatever
+    window (e.g. the terminal running this script) happened to still have focus."""
+
+
 def _focus():
     activate_app(_VSCODE)
-    time.sleep(RNG.uniform(0.4, 0.8))
+    if not wait_until_frontmost(is_vscode_frontmost, timeout=3.0):
+        raise FocusLostError("VS Code did not come to the foreground in time")
+    time.sleep(RNG.uniform(0.15, 0.35))  # brief settle now that focus is CONFIRMED
 
 
 def open_project(path: str):
@@ -126,56 +133,3 @@ def navigate(line_count: int | None = None):
         time.sleep(RNG.uniform(0.2, 0.5))
         pyautogui.press("f12")
         time.sleep(RNG.uniform(0.6, 1.2))
-
-
-def _revert_with_fallback(gitsafe, file_abs, repo_root, undo_presses):
-    """Cmd+Z primary; git drift-check + checkout fallback. Always leaves file clean."""
-    _focus()
-    for _ in range(undo_presses):
-        hotkey("command", "z")
-        time.sleep(RNG.uniform(0.2, 0.5))
-    hotkey("command", "s")  # save so git sees the reverted state
-    time.sleep(0.5)
-    rel = os.path.relpath(file_abs, repo_root)
-    if not gitsafe.file_is_clean(rel):
-        gitsafe.revert_file(rel)
-
-
-def edit_and_revert(gitsafe, file_abs, repo_root):
-    rel = os.path.relpath(file_abs, repo_root)
-    gitsafe.note_touched(rel)
-    open_file(rel)
-    _click_editor()
-    try:
-        # jump somewhere and insert a harmless comment on its own line
-        hotkey("command", "g")
-        time.sleep(0.4)
-        type_text(str(RNG.randint(5, 60)))
-        pyautogui.press("enter")
-        pyautogui.press("home")
-        type_text("// note: reviewing this section\n")
-        hotkey("command", "s")
-        # persist the edit a few minutes, then revert
-        time.sleep(RNG.uniform(60, 240))
-    finally:
-        # one comment line ~ a handful of undo units; fallback guarantees clean
-        _revert_with_fallback(gitsafe, file_abs, repo_root, undo_presses=RNG.randint(3, 6))
-
-
-def break_and_fix(gitsafe, file_abs, repo_root):
-    rel = os.path.relpath(file_abs, repo_root)
-    gitsafe.note_touched(rel)
-    open_file(rel)
-    _click_editor()
-    try:
-        hotkey("command", "g")
-        time.sleep(0.4)
-        type_text(str(RNG.randint(5, 60)))
-        pyautogui.press("enter")
-        pyautogui.press("home")
-        # a line that reliably fails tsc but is self-contained
-        type_text("const __tmp_bad: number = 'oops'\n")
-        hotkey("command", "s")
-        time.sleep(RNG.uniform(30, 120))  # "look at" the error
-    finally:
-        _revert_with_fallback(gitsafe, file_abs, repo_root, undo_presses=RNG.randint(3, 6))

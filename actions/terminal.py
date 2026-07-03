@@ -4,15 +4,21 @@ import pyautogui
 
 from core.keyboard_sim import type_text
 from core.keys import hotkey
-from core.platform_mac import activate_app
+from core.platform_mac import activate_app, is_vscode_frontmost, wait_until_frontmost
 from core.rng import RNG
 
 _VSCODE = "Visual Studio Code"
 
 
+class FocusLostError(RuntimeError):
+    """VS Code never actually came to the foreground — do not type/click."""
+
+
 def _focus_vscode():
     activate_app(_VSCODE)
-    time.sleep(RNG.uniform(0.6, 1.0))
+    if not wait_until_frontmost(is_vscode_frontmost, timeout=3.0):
+        raise FocusLostError("VS Code did not come to the foreground in time")
+    time.sleep(RNG.uniform(0.2, 0.4))  # brief settle now that focus is CONFIRMED
 
 
 def _run_palette_command(title: str):

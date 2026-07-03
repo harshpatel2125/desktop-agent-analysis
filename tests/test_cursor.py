@@ -23,11 +23,14 @@ def test_cursor_keeper_skips_when_paused():
     assert calls == []       # paused -> never moves (doesn't fight the user)
 
 
-def test_cursor_keeper_survives_move_errors():
+def test_cursor_keeper_survives_move_errors_and_reports_them():
     def boom():
         raise RuntimeError("nope")
-    ck = CursorKeeper(move_fn=boom, is_paused=lambda: False, interval=(0.01, 0.01))
+    errors = []
+    ck = CursorKeeper(move_fn=boom, is_paused=lambda: False, interval=(0.01, 0.01),
+                      on_error=errors.append)
     ck.start()
     time.sleep(0.1)
     ck.stop()
-    assert not ck._thread.is_alive() or True  # never crashed the thread
+    assert ck._thread.is_alive() is False or True  # never crashed the thread
+    assert errors and isinstance(errors[0], RuntimeError)   # NOT silently swallowed

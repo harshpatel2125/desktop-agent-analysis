@@ -5,8 +5,8 @@ import pyautogui
 
 from actions.terminal import open_new_terminal, run_in_terminal
 from core import mouse
-from core.keyboard_sim import type_text
 from core.keys import hotkey
+from core.pacing import paced_sleep
 from core.platform_mac import activate_app
 from core.rng import RNG
 
@@ -15,16 +15,19 @@ _CHROME = "Google Chrome"
 _SLACK = "Slack"
 
 
-def backend_pull(cfg):
+def backend_pull(cfg, is_paused=lambda: False):
     if not cfg.enable_backend_pull:
         return
     open_new_terminal()
     run_in_terminal(f'cd "{cfg.backend_repo_path}"')
     time.sleep(RNG.uniform(0.5, 1.2))
     run_in_terminal("git pull")             # best-effort; failure is fine
-    # linger in the terminal >= 5 min
+    # linger in the terminal >= 5 min — but a real user taking over cuts this short
+    # instead of the harness grinding through up to 9 minutes regardless.
     lo, hi = cfg.backend_pull_linger
-    time.sleep(RNG.uniform(lo, hi))
+    completed = paced_sleep(RNG.uniform(lo, hi), is_paused)
+    if not completed:
+        return  # user is active now — don't touch focus, let them keep control
     # return focus to the editor pane
     activate_app(_VSCODE)
     hotkey("command", "1")
@@ -51,18 +54,6 @@ def _switch_claude_chat(cfg):
     time.sleep(RNG.uniform(1.0, 1.8))
 
 
-_CLAUDE_PROMPTS = [
-    "can you check this file looks okay?",
-    "does this implementation look fine?",
-    "any issues you can spot in the current file?",
-    "is this all good?",
-    "please review the current file",
-    "anything you'd change here?",
-    "looks correct to you?",
-    "can you double-check this is fine?",
-]
-
-
 def _claude_scroll(cfg, up_steps: int, down_steps: int):
     """Focus the transcript and scroll it (up = older, down = recent)."""
     w, h = pyautogui.size()
@@ -81,32 +72,13 @@ def _claude_scroll(cfg, up_steps: int, down_steps: int):
         time.sleep(RNG.uniform(0.8, 1.6))
 
 
-def _claude_send_prompt(cfg):
-    """Type a general prompt into Claude's input box and SEND it.
-
-    ⚠️ This triggers a real Claude response; with auto-edit on Claude may modify code.
-    """
-    if not cfg.enable_claude_prompt:
-        return
-    w, h = pyautogui.size()
-    ix = int(w * cfg.claude_input_frac[0])
-    iy = int(h * cfg.claude_input_frac[1])
-    mouse.move_bezier(pyautogui.position(), (ix, iy))
-    time.sleep(RNG.uniform(0.3, 0.6))
-    pyautogui.click(ix, iy)   # focus the input box
-    time.sleep(RNG.uniform(0.4, 0.8))
-    type_text(RNG.choice(_CLAUDE_PROMPTS))
-    time.sleep(RNG.uniform(0.4, 0.9))
-    pyautogui.press("enter")  # send (user-chosen)
-    time.sleep(RNG.uniform(1.0, 2.0))
-
-
 def claude_extension_browse(cfg):
-    """A realistic Claude session as a varied SEQUENCE: maybe switch chat, read
-    (scroll), maybe send a prompt and wait, read some more, maybe switch again.
+    """A visual-only Claude session: maybe switch to a different past chat, scroll to
+    read the transcript, occasionally switch again. Never types or sends anything —
+    no commands, no prompts, purely looking.
 
-    NOTE: shows real chat content on screen and (if enable_claude_prompt) sends real
-    messages. Keep the flags off if that's not acceptable.
+    NOTE: this still shows real chat content on screen. Keep cfg.enable_claude_extension
+    off if that's not acceptable.
     """
     if not cfg.enable_claude_extension:
         return
@@ -117,11 +89,6 @@ def claude_extension_browse(cfg):
         _switch_claude_chat(cfg)
 
     _claude_scroll(cfg, RNG.randint(2, 4), RNG.randint(1, 2))   # read
-
-    if cfg.enable_claude_prompt and RNG.random() < cfg.claude_prompt_prob:
-        _claude_send_prompt(cfg)                                 # ask something
-        time.sleep(RNG.uniform(4.0, 10.0))                      # wait for a response
-        _claude_scroll(cfg, RNG.randint(1, 2), RNG.randint(1, 2))  # read the reply
 
     if RNG.random() < 0.35:
         _switch_claude_chat(cfg)                                 # occasionally move on

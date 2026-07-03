@@ -27,16 +27,6 @@ class Config:
     jira_slack_interval: tuple[float, float] = (20 * 60, 25 * 60)  # ~20-25 min
     command_timeout: float = 20 * 60
 
-    # edit cadence
-    edit_min_gap: float = 5 * 60
-    edit_interval_dist: tuple[tuple[float, float], ...] = (
-        ((5 * 60, 8 * 60), 0.20),
-        ((10 * 60, 25 * 60), 0.55),
-        ((30 * 60, 60 * 60), 0.25),
-    )
-    edit_burst_size: tuple[int, int] = (1, 3)
-    break_fix_probability: float = 0.30  # of edit fires, chance it's a break/fix instead
-
     # rhythm (seconds)
     focus_burst: tuple[float, float] = (10 * 60, 25 * 60)
     short_break: tuple[float, float] = (1 * 60, 3 * 60)
@@ -44,8 +34,7 @@ class Config:
     # feature flags
     enable_npm_install: bool = True
     enable_android_build: bool = False
-    enable_editing: bool = True
-    enable_claude_extension: bool = True   # ⚠️ shows real chat history on screen
+    enable_claude_extension: bool = True   # ⚠️ shows real chat history on screen (visual-only)
     enable_backend_pull: bool = True
     debug_log: bool = False
 
@@ -72,11 +61,6 @@ class Config:
     # history/clock button sits (screen fractions, top-right of the Claude panel).
     claude_switch_chat_prob: float = 0.5
     claude_history_btn_frac: tuple[float, float] = (0.965, 0.08)
-    # typing a prompt into the Claude input box and SENDING it. ⚠️ this triggers a
-    # real Claude response and (with auto-edit on) may modify your code.
-    enable_claude_prompt: bool = True
-    claude_prompt_prob: float = 0.5             # chance a Claude visit sends a prompt
-    claude_input_frac: tuple[float, float] = (0.85, 0.90)  # input box (bottom of panel)
     # after ~this many file steps, force a Claude step (interleave files and Claude)
     files_per_claude: int = 2
 
@@ -96,7 +80,8 @@ class Config:
     cursor_move_interval: tuple[float, float] = (12.0, 20.0)  # move at least every ~20s
 
     # auto-pause when a real person uses the machine; resume after this many seconds
-    # of no genuine (hardware) input. The blackpearl's own injected input doesn't count.
+    # of no genuine (hardware) input. (See core/injected.py for how the blackpearl's
+    # own synthetic input is kept from being mistaken for a real person's.)
     enable_auto_pause: bool = True
     resume_after_idle: float = 120.0  # 2 minutes
 
