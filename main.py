@@ -97,10 +97,21 @@ def main():
 
     signal.signal(signal.SIGTERM, _terminate)
 
+    # Realism, not concealment: a real developer's terminal doesn't scroll with
+    # "· read file X" / "· CLAUDE browse" debug lines — that output is itself a
+    # tell if the terminal is ever visible on screen. So routine status/activity
+    # output is off by default; BLACKPEARL_DEBUG=1 turns it on for local debugging.
+    # (This has no bearing on screen/input-based detection — a monitor doesn't read
+    # this process's stdout — it's purely about not looking obviously scripted.)
+    debug = os.environ.get("BLACKPEARL_DEBUG") == "1"
+
+    def dprint(msg):
+        if debug:
+            print(msg)
+
     ignore_hours = os.environ.get("BLACKPEARL_IGNORE_HOURS") == "1"
     # BLACKPEARL_TEST=1: fast, file-open-heavy profile for watching it work quickly.
     # It ONLY overrides cadence — the realistic default profile is unchanged.
-    # Implies work-hours bypass so you can test at any time.
     from dataclasses import replace
     if os.environ.get("BLACKPEARL_TEST") == "1":
         # ONLY difference from a normal run is SPEED — every feature/behavior
@@ -112,26 +123,25 @@ def main():
             micro_activity_gap=(5.0, 10.0),  # frequent jitter
             jira_slack_interval=(40.0, 90.0),  # see the Jira->Slack cycle quickly
         )
-        print("BLACKPEARL_TEST=1 → FAST profile (short gaps only; all other behavior same as normal).")
-    if os.environ.get("BLACKPEARL_DEBUG") == "1":
+        dprint("BLACKPEARL_TEST=1 → FAST profile (short gaps only; all other behavior same as normal).")
+    if debug:
         cfg = replace(cfg, debug_log=True)
-        print("BLACKPEARL_DEBUG=1 → logging each action.")
+        dprint("BLACKPEARL_DEBUG=1 → logging each action.")
     if ignore_hours:
-        print("BLACKPEARL_IGNORE_HOURS=1 → work-hours/day gate bypassed.")
+        dprint("BLACKPEARL_IGNORE_HOURS=1 → work-hours/day gate bypassed.")
     src_root = os.path.join(cfg.project_path, "src")
 
     def _pause_error(exc):
         # A dead poll thread freezes `paused` forever — exactly what "auto-pause
-        # stopped working" looks like from the outside. Always surface it.
-        print(f"  ! auto-pause check failed, retrying: {exc!r}")
+        # stopped working" looks like from the outside. Surfaced only in debug mode.
+        dprint(f"  ! auto-pause check failed, retrying: {exc!r}")
 
     pause = PauseController(auto_pause=cfg.enable_auto_pause,
                            resume_after=cfg.resume_after_idle,
                            on_error=_pause_error)
     pause.start()
-    if cfg.enable_auto_pause:
-        print(f"Auto-pause ON: backs off when you use the machine, resumes after "
-              f"{int(cfg.resume_after_idle)}s of no real input.")
+    dprint(f"Auto-pause ON: backs off when you use the machine, resumes after "
+           f"{int(cfg.resume_after_idle)}s of no real input.")
     # Background cursor nudger — keeps the cursor moving every ~20s even during long
     # sleeps; skips while paused (real user active) so it never fights you.
     cursor = None
@@ -139,11 +149,10 @@ def main():
         cursor = CursorKeeper(move_fn=mouse.micro_jitter,
                               is_paused=lambda: pause.paused,
                               interval=cfg.cursor_move_interval,
-                              on_error=lambda exc: print(f"  ! cursor nudge failed: {exc!r}"))
+                              on_error=lambda exc: dprint(f"  ! cursor nudge failed: {exc!r}"))
         cursor.start()
-    if cfg.enable_claude_extension:
-        print("WARNING: Claude browsing is ON — screenshots show your real chat history "
-              "(visual-only: scrolling and switching chats, never typing/sending anything).")
+    dprint("Claude browsing is ON — screenshots show your real chat history "
+           "(visual-only: scrolling and switching chats, never typing/sending anything).")
 
     pmap = build_project_map(src_root)
     explore = ExplorationState(pmap)
@@ -179,9 +188,9 @@ def main():
             return
         if cfg.enable_work_hours and not ignore_hours and not is_active_now(cfg, datetime.now()):
             if not idle_announced:
-                print(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
-                      f"weekdays {cfg.work_days}). Nothing will run until then. "
-                      f"Run with BLACKPEARL_IGNORE_HOURS=1 to test now.")
+                dprint(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
+                       f"weekdays {cfg.work_days}). Nothing will run until then. "
+                       f"Run with BLACKPEARL_IGNORE_HOURS=1 to test now.")
                 idle_announced = True
             time.sleep(60.0)
             return
@@ -284,10 +293,10 @@ def main():
             except KeyboardInterrupt:
                 raise                       # manual stop -> clean shutdown below
             except Exception as e:
-                print(f"  ! recovered from error, continuing: {e!r}")
+                dprint(f"  ! recovered from error, continuing: {e!r}")
                 time.sleep(1.0)
     except KeyboardInterrupt:
-        print("\nStopping...")
+        dprint("\nStopping...")
     finally:
         # Shield cleanup from a SECOND Ctrl+C or pkill: ignore SIGINT/SIGTERM while it runs.
         _pi = signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -298,7 +307,7 @@ def main():
                 cursor.stop()
             if metro_started and cfg.stop_metro_on_exit:
                 _stop_metro()               # stop the Metro WE started (leaves yours alone)
-            print("Done. No file edits were made (editing is disabled) — nothing to revert.")
+            dprint("Done. No file edits were made (editing is disabled) — nothing to revert.")
         finally:
             signal.signal(signal.SIGINT, _pi)
             signal.signal(signal.SIGTERM, _pt)
@@ -311,4 +320,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nStopped during startup (nothing was changed).")
+        if os.environ.get("BLACKPEARL_DEBUG") == "1":
+            print("\nStopped during startup (nothing was changed).")
