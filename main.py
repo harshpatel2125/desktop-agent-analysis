@@ -1,322 +1,308 @@
 # main.py
-"""blackpearl — macOS. READ THE SPEC before changing behavior:
-docs/superpowers/specs/2026-07-01-blackpearl-design.md
+"""blackpearl — macOS activity simulator (schedule-driven, read-only).
 
-Read-only w.r.t. source: no file editing, no TypeScript-breaking, no Claude commands/
-prompts — only reading, scrolling, navigating, and running real (non-code-modifying)
-dev commands (builds, installs, git pull). Never commits/pushes.
-Stop: PAUSE via `touch /tmp/blackpearl_pause` (resume: rm it), Ctrl+C, or slam a screen corner.
+Structure (see docs/superpowers/specs/2026-07-10-blackpearl-schedule-redesign.md):
+  * A repeating CYCLE = a 20-min VS Code work window + a 6-min Jira/Slack excursion.
+  * VS Code windows alternate: FILES (open 2 files, 6+14 min holds, scrolling) and
+    CLAUDE (open 1 file, then read/switch chats in the Claude panel).
+  * The active FEATURE/MODULE switches every 90 min (random, or a --module: sequence).
+  * Files come from config/module-files.md (Screens mostly, Components occasionally).
+  * Jira/Slack links rotate from config/links.json with no repeat until exhausted.
+  * The cursor makes a major move ~every 30s. Auto-pause backs off for a real user; the
+    schedule clock freezes while paused and resumes where it left off.
+
+Read-only: no file editing, no terminal commands, no builds/installs/git — only opening,
+reading, scrolling, and viewing Jira/Slack/Claude. Never commits/pushes.
+Stop: PAUSE via `touch /tmp/blackpearl_pause` (resume: rm it), Ctrl+C, or slam a corner.
 """
 import os
-import subprocess
+import sys
+import signal
+import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 
 import pyautogui
 
 from config import CONFIG, is_active_now
-from core.dwell import dwell
-from core.exploration import build_project_map, ExplorationState
 from core import mouse
 from core.cursor import CursorKeeper
-from core.pacing import paced_sleep
+from core.file_picker import FilePicker
+from core.links_config import load_links
+from core.module_map import build_module_map, rotation_keys
 from core.platform_mac import PauseController
-from core.rhythm import IntervalTimer
 from core.rng import RNG
-from actions import vscode, apps, terminal
+from core.rotation import Rotator
+from core.schedule import ActiveClock, ModuleScheduler, parse_module_flag
+from actions import apps, vscode
 
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 
 
-def _line_count(path: str):
-    """Number of lines in a file, or None if unreadable (used to avoid over-scrolling)."""
-    try:
-        with open(path, "r", errors="ignore") as f:
-            return sum(1 for _ in f)
-    except OSError:
-        return None
-
-
-def _metro_running() -> bool:
-    """True if something is already listening on Metro's port 8081."""
-    res = subprocess.run(
-        ["lsof", "-iTCP:8081", "-sTCP:LISTEN", "-n", "-P"],
-        capture_output=True, text=True, check=False,
-    )
-    return res.returncode == 0 and bool(res.stdout.strip())
-
-
-def _stop_metro():
-    """Kill whatever is listening on Metro's port 8081 (used on shutdown if we started it)."""
-    pids = subprocess.run(
-        ["lsof", "-tiTCP:8081", "-sTCP:LISTEN"],
-        capture_output=True, text=True, check=False,
-    ).stdout.split()
-    for pid in pids:
-        subprocess.run(["kill", pid], check=False)
-
-
-def _ios_build_sequence(cfg):
-    terminal.open_new_terminal()
-    terminal.run_in_terminal(f'cd "{cfg.project_path}"')
-    terminal.run_sequence(["cd ios", "pod install", "cd .."])
-    terminal.run_in_terminal(f'pnpm ios:device "{cfg.ios_device}"')
-
-
-def _npm_install(cfg, is_paused=lambda: False):
-    terminal.open_new_terminal()
-    terminal.run_in_terminal(f'cd "{cfg.project_path}"')
-    terminal.run_in_terminal("npm i")          # accepted risk (pnpm repo)
-    # a human would notice failure and retry with -f; blackpearl always follows up —
-    # but a real user taking over cuts the wait short rather than grinding through it.
-    if paced_sleep(RNG.uniform(20, 60), is_paused):
-        terminal.run_in_terminal("npm i -f")
-
-
 def main():
     cfg = CONFIG
-    # Must happen before ANY pyautogui call: wraps input-posting functions so
-    # PauseController can tell "the harness just acted" apart from "a human just acted".
-    from core.injected import install as install_input_tracking
-    install_input_tracking()
-
-    import shutil
-    if not shutil.which("code"):
-        raise SystemExit("VS Code 'code' CLI not found. Run 'Shell Command: Install code command in PATH'.")
-    if not os.path.isdir(os.path.join(cfg.project_path, ".git")):
-        raise SystemExit(f"Project not a git repo: {cfg.project_path}")
-
-    # Make `pkill`/SIGTERM run the same clean shutdown as Ctrl+C (SIGINT) — otherwise
-    # SIGTERM kills the process WITHOUT reverting, leaving blackpearl edits in the working
-    # tree that the next run would stage as its baseline (i.e. not a fresh start).
-    import signal
-
-    def _terminate(signum, frame):
-        raise KeyboardInterrupt
-
-    signal.signal(signal.SIGTERM, _terminate)
-
-    # Realism, not concealment: a real developer's terminal doesn't scroll with
-    # "· read file X" / "· CLAUDE browse" debug lines — that output is itself a
-    # tell if the terminal is ever visible on screen. So routine status/activity
-    # output is off by default; BLACKPEARL_DEBUG=1 turns it on for local debugging.
-    # (This has no bearing on screen/input-based detection — a monitor doesn't read
-    # this process's stdout — it's purely about not looking obviously scripted.)
     debug = os.environ.get("BLACKPEARL_DEBUG") == "1"
 
     def dprint(msg):
         if debug:
             print(msg)
 
-    ignore_hours = os.environ.get("BLACKPEARL_IGNORE_HOURS") == "1"
-    # BLACKPEARL_TEST=1: fast, file-open-heavy profile for watching it work quickly.
-    # It ONLY overrides cadence — the realistic default profile is unchanged.
-    from dataclasses import replace
+    # BLACKPEARL_TEST=1: same behavior, just compressed timings so you can watch a full
+    # cycle + module switch in minutes. Holds still sum to the window (short+long==window).
     if os.environ.get("BLACKPEARL_TEST") == "1":
-        # ONLY difference from a normal run is SPEED — every feature/behavior
-        # (auto-pause, Claude, weights, safety) is identical to normal.
-        cfg = replace(
-            cfg,
-            action_gap=(3.0, 8.0),          # ~seconds between actions
-            state_dwell=(15.0, 30.0),       # short holds
-            micro_activity_gap=(5.0, 10.0),  # frequent jitter
-            jira_slack_interval=(40.0, 90.0),  # see the Jira->Slack cycle quickly
-        )
-        dprint("BLACKPEARL_TEST=1 → FAST profile (short gaps only; all other behavior same as normal).")
+        cfg = replace(cfg,
+                      vscode_window_secs=60, excursion_secs=20, module_period_secs=4 * 60,
+                      file_hold_short_secs=15, file_hold_long_secs=45,
+                      claude_switch_after_secs=20, reading_step_gap=(5.0, 10.0),
+                      cursor_move_interval=(8.0, 12.0))
+        dprint("BLACKPEARL_TEST=1 → FAST profile (compressed timings; behavior identical).")
     if debug:
         cfg = replace(cfg, debug_log=True)
-        dprint("BLACKPEARL_DEBUG=1 → logging each action.")
-    if ignore_hours:
-        dprint("BLACKPEARL_IGNORE_HOURS=1 → work-hours/day gate bypassed.")
-    src_root = os.path.join(cfg.project_path, "src")
+    ignore_hours = os.environ.get("BLACKPEARL_IGNORE_HOURS") == "1"
 
-    def _pause_error(exc):
-        # A dead poll thread freezes `paused` forever — exactly what "auto-pause
-        # stopped working" looks like from the outside. Surfaced only in debug mode.
-        dprint(f"  ! auto-pause check failed, retrying: {exc!r}")
+    def log(msg):
+        if cfg.debug_log:
+            print(f"  · {msg}")
 
+    # preflight
+    import shutil
+    if not shutil.which("code"):
+        raise SystemExit("VS Code 'code' CLI not found. Run 'Shell Command: Install code command in PATH'.")
+    if not os.path.isdir(os.path.join(cfg.project_path, ".git")):
+        raise SystemExit(f"Project not a git repo: {cfg.project_path}")
+
+    # Make pkill/SIGTERM run the same clean shutdown as Ctrl+C.
+    def _terminate(signum, frame):
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, _terminate)
+
+    # ---- module map + schedule ----
+    module_map = build_module_map(cfg.module_files_md, cfg.project_path)
+    keys = rotation_keys(module_map)
+    if not keys:
+        raise SystemExit(f"No modules with existing files found via {cfg.module_files_md}")
+    sequence = parse_module_flag(sys.argv[1:], keys)
+    scheduler = ModuleScheduler(keys, sequence=sequence, rng=RNG)
+    picker = FilePicker(RNG, component_prob=cfg.component_prob)
+
+    links = load_links(cfg.links_json)
+    jira_rot = Rotator(links.jira_urls)
+    slack_rot = Rotator(links.slack_links)
+
+    if sequence:
+        dprint(f"Module sequence {sequence}; switch every {int(cfg.module_period_secs/60)}m.")
+    else:
+        dprint(f"Module: random every {int(cfg.module_period_secs/60)}m. Available: {keys}")
+    dprint(f"Jira links: {len(jira_rot)}  Slack links: {len(slack_rot)}")
+
+    # Serialize main-thread actions vs. the background cursor keeper.
+    input_lock = threading.Lock()
+    _stop = {"v": False}
+
+    # ---- pause + active clock + cursor ----
     pause = PauseController(auto_pause=cfg.enable_auto_pause,
-                           resume_after=cfg.resume_after_idle,
-                           on_error=_pause_error)
+                            resume_after=cfg.resume_after_idle,
+                            on_error=lambda e: dprint(f"  ! pause check failed: {e!r}"))
     pause.start()
-    dprint(f"Auto-pause ON: backs off when you use the machine, resumes after "
-           f"{int(cfg.resume_after_idle)}s of no real input.")
-    # Background cursor nudger — keeps the cursor moving every ~20s even during long
-    # sleeps; skips while paused (real user active) so it never fights you.
+    if cfg.enable_auto_pause and not pause.monitor_active:
+        print("WARNING: could not start input monitor (grant Input Monitoring to your "
+              "terminal in System Settings > Privacy & Security). Auto-pause on human "
+              "activity is DISABLED — use `touch /tmp/blackpearl_pause` to pause.")
+
+    clock = ActiveClock(is_paused=lambda: pause.paused)
+    clock.start()
+
+    def cursor_move():
+        mouse.move_bezier(pyautogui.position(),
+                          mouse.editor_point(cfg.editor_x_range, cfg.editor_y_range))
+
     cursor = None
     if cfg.enable_cursor_keeper:
-        cursor = CursorKeeper(move_fn=mouse.micro_jitter,
-                              is_paused=lambda: pause.paused,
-                              interval=cfg.cursor_move_interval,
-                              on_error=lambda exc: dprint(f"  ! cursor nudge failed: {exc!r}"))
+        cursor = CursorKeeper(move_fn=cursor_move, is_paused=lambda: pause.paused,
+                              interval=cfg.cursor_move_interval, lock=input_lock,
+                              on_error=lambda e: dprint(f"  ! cursor move failed: {e!r}"))
         cursor.start()
-    dprint("Claude browsing is ON — screenshots show your real chat history "
-           "(visual-only: scrolling and switching chats, never typing/sending anything).")
 
-    pmap = build_project_map(src_root)
-    explore = ExplorationState(pmap)
+    is_paused = lambda: pause.paused
 
     vscode.open_project(cfg.project_path)
-    # Start Metro only if it isn't already running (port 8081). If the project's
-    # VS Code + Metro are already up, reuse them instead of spawning a duplicate.
-    metro_started = False
-    if not _metro_running():
-        terminal.open_new_terminal()
-        terminal.run_in_terminal(f'cd "{cfg.project_path}" && pnpm start')
-        metro_started = True
 
-    build_timer = IntervalTimer(cfg.build_interval)
-    install_timer = IntervalTimer(cfg.install_interval)
-    backend_timer = IntervalTimer(cfg.backend_pull_interval)
-    apps_timer = IntervalTimer(cfg.jira_slack_interval)  # timed Jira/Slack cycle
-    next_app = "jira"                                    # first excursion is Jira
+    # ---- primitives ----
+    def act(fn):
+        """Run a discrete GUI action: wait out any pause, then hold input_lock so the
+        cursor keeper can't move the cursor mid-click/type/bezier."""
+        while pause.paused and not _stop["v"]:
+            time.sleep(0.5)
+        with input_lock:
+            fn()
 
-    idle_announced = False
-    was_paused = False
-    files_since_claude = 0
-    from core.platform_mac import is_frontmost
+    def active_hold(total, step=None, on_resume=None):
+        """Hold for `total` ACTIVE seconds (does not advance while paused). Every
+        ~reading_step_gap active-seconds run step() (under the lock). On a pause→resume
+        transition, run on_resume() to re-assert focus."""
+        start = clock.elapsed()
+        next_step = start + RNG.uniform(*cfg.reading_step_gap)
+        was_paused = False
+        while clock.elapsed() - start < total and not _stop["v"]:
+            if pause.paused:
+                was_paused = True
+                time.sleep(1.0)
+                continue
+            if was_paused:
+                was_paused = False
+                if on_resume:
+                    try:
+                        act(on_resume)
+                    except Exception as e:
+                        dprint(f"  ! resume re-assert failed: {e!r}")
+                next_step = clock.elapsed() + RNG.uniform(*cfg.reading_step_gap)
+            if step and clock.elapsed() >= next_step:
+                try:
+                    act(step)
+                except Exception as e:
+                    dprint(f"  ! hold step failed: {e!r}")
+                next_step = clock.elapsed() + RNG.uniform(*cfg.reading_step_gap)
+            time.sleep(0.5)
 
-    def _iteration():
-        """One loop step. Returns early (like the old `continue`) after any action.
-        Runs under a per-iteration guard so one failing action never stops the blackpearl."""
-        nonlocal was_paused, idle_announced, files_since_claude, next_app
+    # ---- windows ----
+    def open_and_hold(path, hold_secs):
+        rel = os.path.relpath(path, cfg.project_path)
+        log(f"open {rel} (hold {int(hold_secs)}s)")
 
-        if pause.paused:
-            was_paused = True
-            time.sleep(2.0)
+        def open_and_settle():
+            if vscode.open_file(rel):                 # False if the file is missing
+                vscode.scroll_into_file(path)         # scroll past the imports (~20-35%)
+
+        act(open_and_settle)
+        active_hold(hold_secs,
+                    step=lambda: vscode.reading_scroll(),
+                    on_resume=open_and_settle)
+
+    def files_window(groups):
+        long_first = RNG.random() < 0.5
+        holds = ([cfg.file_hold_long_secs, cfg.file_hold_short_secs] if long_first
+                 else [cfg.file_hold_short_secs, cfg.file_hold_long_secs])
+        for hold in holds:
+            if _stop["v"]:
+                return
+            path, _kind = picker.next(groups)
+            if path is None:
+                active_hold(hold)
+            else:
+                open_and_hold(path, hold)
+
+    def claude_window(groups):
+        path, _kind = picker.next(groups)          # open one file (keeps the count going)
+        if path:
+            rel = os.path.relpath(path, cfg.project_path)
+            log(f"open {rel} (claude window)")
+            act(lambda: vscode.open_file(rel))
+        if not cfg.enable_claude_extension:
+            active_hold(cfg.vscode_window_secs)     # Claude off → just read the window out
             return
+        act(lambda: apps.claude_focus_panel(cfg))
+        win_start = clock.elapsed()
+        switched = {"v": False}
+
+        def step():
+            if (not switched["v"]
+                    and clock.elapsed() - win_start >= cfg.claude_switch_after_secs):
+                apps.claude_switch_chat(cfg)
+                switched["v"] = True
+            else:
+                apps.claude_scroll_step(cfg)
+
+        active_hold(cfg.vscode_window_secs, step=step,
+                    on_resume=lambda: apps.claude_focus_panel(cfg))
+
+    def excursion(kind) -> bool:
+        """Open a Jira/Slack window and hold it ~6 min (no actions). True if it ran."""
+        if kind == "jira":
+            if not cfg.enable_jira:
+                return False
+            url = jira_rot.next()
+            if not url:
+                return False
+            log("jira excursion")
+            act(lambda: apps.jira_board(url, is_paused))
+        else:
+            if not cfg.enable_slack:
+                return False
+            link = slack_rot.next()
+            if not link:
+                return False
+            log("slack excursion")
+            act(lambda: apps.open_slack_message(link, links.slack_team_id, is_paused))
+        active_hold(cfg.excursion_secs)             # just keep it open; cursor still moves
+        act(lambda: vscode._focus())                # come back to VS Code
+        return True
+
+    # ---- the cycle ----
+    state = {"window": 0, "excursion": 0, "module": None}
+
+    def run_cycle():
         if cfg.enable_work_hours and not ignore_hours and not is_active_now(cfg, datetime.now()):
-            if not idle_announced:
-                dprint(f"Idle: outside work hours ({cfg.work_start}-{cfg.work_end}, "
-                       f"weekdays {cfg.work_days}). Nothing will run until then. "
-                       f"Run with BLACKPEARL_IGNORE_HOURS=1 to test now.")
-                idle_announced = True
             time.sleep(60.0)
             return
-        idle_announced = False
+        # If we're resuming from a takeover at a cycle boundary, re-assert the project.
+        if pause.paused:
+            while pause.paused and not _stop["v"]:
+                time.sleep(0.5)
+            if _stop["v"]:
+                return
+            act(lambda: vscode.open_project(cfg.project_path))
 
-        # resuming after a pause: re-assert the project's VS Code window before acting.
-        if was_paused:
-            vscode.open_project(cfg.project_path)
-            was_paused = False
+        module = scheduler.module_for_period(int(clock.elapsed() // cfg.module_period_secs))
+        if module != state["module"]:
+            state["module"] = module
+            picker.start_module()
+            log(f"MODULE → {module}")
+        groups = module_map[module]
 
-        def log(msg):
-            if cfg.debug_log:
-                print(f"  · {msg}")
-
-        is_paused = lambda: pause.paused
-        state_dwell = lambda: dwell(RNG.uniform(*cfg.state_dwell),
-                                    mouse.micro_jitter,
-                                    gap_range=cfg.micro_activity_gap,
-                                    is_paused=is_paused)
-
-        time.sleep(RNG.uniform(*cfg.action_gap))
-
-        # hourly-ish heavy actions
-        if build_timer.due():
-            log("ios build")
-            _ios_build_sequence(cfg)
-            build_timer.reset()
-            return
-        if cfg.enable_npm_install and install_timer.due():
-            log("npm install")
-            _npm_install(cfg, is_paused=is_paused)
-            install_timer.reset()
-            return
-        if cfg.enable_backend_pull and backend_timer.due():
-            log("backend pull")
-            apps.backend_pull(cfg, is_paused=is_paused)
-            backend_timer.reset()
-            return
-
-        # timed Jira/Slack cycle: alternate Jira/Slack forever; files+Claude fill between.
-        if apps_timer.due():
-            if next_app == "jira" and cfg.enable_jira:
-                log("jira board (timed)")
-                apps.jira_board(cfg)
-                state_dwell()
-                next_app = "slack"
-            elif next_app == "slack" and cfg.enable_slack:
-                log("slack (timed)")
-                apps.open_slack(cfg)
-                state_dwell()
-                next_app = "jira"
-            else:
-                next_app = "slack" if next_app == "jira" else "jira"  # disabled → flip
-            apps_timer.reset()
-            return
-
-        # default: mostly files + Claude, with light in-editor navigation.
-        roll = RNG.random()
-        if cfg.enable_claude_extension and files_since_claude >= cfg.files_per_claude:
-            log(f"CLAUDE browse (after {files_since_claude} file steps)")
-            apps.claude_extension_browse(cfg)
-            files_since_claude = 0
-            state_dwell()
-        elif roll < cfg.read_file_prob:                     # ~40%: open + read a file
-            target = explore.next_file()
-            if target:
-                log(f"read file {os.path.relpath(target, cfg.project_path)}")
-                vscode.open_file(os.path.relpath(target, cfg.project_path))
-                explore.mark_read(target)
-                vscode.read_scroll(RNG.choice(["slow", "slow", "skim"]),
-                                   line_count=_line_count(target))
-                files_since_claude += 1
-                state_dwell()
-            else:
-                log("read file (none left to explore)")
-        elif roll < cfg.read_file_prob + cfg.claude_prob and cfg.enable_claude_extension:
-            log("CLAUDE browse")
-            apps.claude_extension_browse(cfg)  # ~40%: Claude chat (visual-only)
-            files_since_claude = 0
-            state_dwell()
-        elif roll < 0.98:
-            log("navigate")
-            vscode.navigate()
-            state_dwell()
+        if state["window"] % 2 == 0:
+            log(f"window {state['window']} FILES [{module}]")
+            files_window(groups)
         else:
-            log("scroll")
-            vscode.read_scroll("slow")
-            state_dwell()
+            log(f"window {state['window']} CLAUDE [{module}]")
+            claude_window(groups)
+        state["window"] += 1
 
-        # foreground watcher: if focus drifted off VS Code, come back
-        if not is_frontmost("Code") and not is_frontmost("Visual Studio Code"):
-            vscode._focus()
+        for _ in range(2):                          # try one excursion; skip disabled/empty
+            kind = "jira" if state["excursion"] % 2 == 0 else "slack"
+            state["excursion"] += 1
+            if excursion(kind):
+                break
 
     try:
         while True:
-            # Per-iteration guard: a single action blowing up must NOT stop the blackpearl.
-            # It runs continuously until you manually stop it (Ctrl+C / pkill / corner-slam).
             try:
-                _iteration()
+                run_cycle()
             except KeyboardInterrupt:
-                raise                       # manual stop -> clean shutdown below
+                raise
             except Exception as e:
                 dprint(f"  ! recovered from error, continuing: {e!r}")
                 time.sleep(1.0)
     except KeyboardInterrupt:
         dprint("\nStopping...")
     finally:
-        # Shield cleanup from a SECOND Ctrl+C or pkill: ignore SIGINT/SIGTERM while it runs.
+        _stop["v"] = True
         _pi = signal.signal(signal.SIGINT, signal.SIG_IGN)
         _pt = signal.signal(signal.SIGTERM, signal.SIG_IGN)
         try:
             pause.stop()
+            clock.stop()
             if cursor is not None:
                 cursor.stop()
-            if metro_started and cfg.stop_metro_on_exit:
-                _stop_metro()               # stop the Metro WE started (leaves yours alone)
-            dprint("Done. No file edits were made (editing is disabled) — nothing to revert.")
+            dprint("Done. No file edits, no terminal commands — nothing to revert.")
         finally:
             signal.signal(signal.SIGINT, _pi)
             signal.signal(signal.SIGTERM, _pt)
 
 
 if __name__ == "__main__":
-    # Catch Ctrl+C that lands during startup (before the loop's own try/except),
-    # so early aborts exit quietly instead of dumping a traceback. Nothing is staged
-    # or edited yet at that point, so there's nothing to revert here.
     try:
         main()
     except KeyboardInterrupt:

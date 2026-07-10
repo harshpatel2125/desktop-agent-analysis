@@ -1,0 +1,16 @@
+{
+  "_comment": "Blackpearl link pools. Add as many Jira URLs and Slack message permalinks as you like — each excursion opens the NEXT one, no repeats within a session until the list is exhausted, then it restarts. Slack permalinks are opened in the Slack desktop app (converted to a slack:// deep link using slack_team_id).",
+  "slack_team_id": "T0Y2128LE",
+  "jira_urls": [
+    "https://flixpremiere.atlassian.net/jira/software/projects/WS/boards/9?jql=assignee%20%3D%20712020%3A99f52d86-aac3-4f8f-86b2-fed545449c48",
+    "https://flixpremiere.atlassian.net/jira/software/projects/WS/boards/9?jql=assignee%20%3D%20712020%3A99f52d86-aac3-4f8f-86b2-fed545449c48&selectedIssue=WS-3000",
+    "https://flixpremiere.atlassian.net/jira/software/projects/WS/boards/9?jql=assignee%20%3D%20712020%3A99f52d86-aac3-4f8f-86b2-fed545449c48&selectedIssue=WS-2869",
+    "https://flixpremiere.atlassian.net/jira/software/projects/WS/boards/9?jql=assignee%20%3D%20712020%3A99f52d86-aac3-4f8f-86b2-fed545449c48&selectedIssue=WS-2997"
+  ],
+  "slack_links": [
+    "https://flixpremiere.slack.com/archives/C09EE5PPLTX/p1783083953761199?thread_ts=1783080152.799599&cid=C09EE5PPLTX",
+    "https://flixpremiere.slack.com/archives/C09EE5PPLTX/p1783671201721089",
+    "https://flixpremiere.slack.com/archives/C09P81X1ADA/p1783692800644649?thread_ts=1783692510.866679&cid=C09P81X1ADA",
+    "https://flixpremiere.slack.com/archives/C09P81X1ADA/p1783692510866679"
+  ]
+}

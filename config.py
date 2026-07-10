@@ -6,9 +6,8 @@ from datetime import datetime, time
 class Config:
     # paths
     project_path: str = "/Users/harsh/Documents/projects/warpspeed/warp-speed-ai-app"
-    backend_repo_path: str = "/Users/harsh/Documents/projects/warpspeed/warp-speed-ai-backend"
-    ios_device: str = "Harsh's iPhone 12 Pro"
-    android_target: str = ""  # empty => default emulator
+    module_files_md: str = "config/module-files.md"   # source of truth for module→files
+    links_json: str = "config/links.json"             # Jira/Slack link pools
 
     # schedule — OFF by default: this is a test blackpearl, so it runs any time/day.
     # (Flip enable_work_hours=True to restrict to the window below.)
@@ -17,71 +16,51 @@ class Config:
     work_start: time = time(9, 30)
     work_end: time = time(18, 30)
 
-    # cadence (seconds)
-    action_gap: tuple[float, float] = (20.0, 45.0)
-    build_interval: tuple[float, float] = (45 * 60, 75 * 60)      # ~1h jittered
-    install_interval: tuple[float, float] = (45 * 60, 75 * 60)    # ~1h jittered
-    backend_pull_interval: tuple[float, float] = (100 * 60, 140 * 60)  # ~2h jittered
-    backend_pull_linger: tuple[float, float] = (5 * 60, 9 * 60)   # >=5 min
-    # timed Jira/Slack cycle: first excursion ~this long after start, then alternate.
-    jira_slack_interval: tuple[float, float] = (20 * 60, 25 * 60)  # ~20-25 min
-    command_timeout: float = 20 * 60
-
-    # rhythm (seconds)
-    focus_burst: tuple[float, float] = (10 * 60, 25 * 60)
-    short_break: tuple[float, float] = (1 * 60, 3 * 60)
+    # ---- the activity schedule (seconds) ----
+    # One cycle = a VS Code work window + a short Jira/Slack excursion.
+    vscode_window_secs: float = 20 * 60           # time spent in VS Code per cycle
+    excursion_secs: float = 6 * 60                # time a Jira/Slack window stays open
+    module_period_secs: float = 90 * 60           # switch feature/module every 1.5 h
+    # A files-window opens 2 files: one short hold, one long hold (order randomized).
+    file_hold_short_secs: float = 6 * 60
+    file_hold_long_secs: float = 14 * 60
+    # In a Claude window, switch to another chat after this much active time.
+    claude_switch_after_secs: float = 6 * 60
+    # During a file hold, do a small reading scroll every N active-seconds (< 60).
+    reading_step_gap: tuple[float, float] = (30.0, 50.0)
+    # Of the files opened, roughly this fraction are Components (rest Screens).
+    component_prob: float = 0.30
 
     # feature flags
-    enable_npm_install: bool = True
-    enable_android_build: bool = False
     enable_claude_extension: bool = True   # ⚠️ shows real chat history on screen (visual-only)
-    enable_backend_pull: bool = True
-    debug_log: bool = False
-
-    # external apps
-    jira_url: str = "https://flixpremiere.atlassian.net/jira/software/projects/WS/boards/9?jql=assignee%20%3D%20712020%3A99f52d86-aac3-4f8f-86b2-fed545449c48"
     enable_jira: bool = True
     enable_slack: bool = True
+    debug_log: bool = False
 
-    # dwell / anti-idle (seconds)
-    state_dwell: tuple[float, float] = (120.0, 480.0)      # >= 2 min per state
-    micro_activity_gap: tuple[float, float] = (30.0, 50.0)  # act before 60s idle
-
-    # default-loop action weights: ~40% files (open/read), ~40% browse Claude,
-    # the remaining ~20% split across navigate / browser / Jira / Slack / scroll.
-    read_file_prob: float = 0.40
-    claude_prob: float = 0.40
     # Claude panel targeting (docked right). Aim at the MIDDLE of the transcript —
     # not the top switcher (which changes chats) or the bottom input box.
-    # Tune these to your panel: x fraction of screen width, y band (fractions).
     claude_panel_x_frac: float = 0.85
     claude_scroll_y_range: tuple[float, float] = (0.45, 0.65)
     claude_scroll_amount: tuple[int, int] = (4, 10)  # wheel notches per step
-    # switching between past Claude conversations: chance to do it, and where the
-    # history/clock button sits (screen fractions, top-right of the Claude panel).
+    # switching between past Claude conversations: where the history/clock button sits.
     claude_switch_chat_prob: float = 0.5
     claude_history_btn_frac: tuple[float, float] = (0.965, 0.08)
-    # after ~this many file steps, force a Claude step (interleave files and Claude)
-    files_per_claude: int = 2
 
     # editor click/scroll target area (screen fractions) — kept clear of the
     # right-docked Claude panel, the bottom-docked terminal, AND the top tab +
-    # breadcrumb bar (clicking the breadcrumb opens the symbol dropdown). Tune to layout.
+    # breadcrumb bar. Also the target zone for the cursor's periodic major moves.
     editor_x_range: tuple[float, float] = (0.25, 0.64)
     editor_y_range: tuple[float, float] = (0.24, 0.60)
 
-    # on shutdown, stop Metro (port 8081) IF the blackpearl started it (leaves a Metro
-    # you were already running alone).
-    stop_metro_on_exit: bool = True
-
-    # background cursor nudger: keeps the cursor moving at least this often (max stays
-    # <= target) so no idle gap forms during long sleeps. Skips while a real user is active.
+    # background cursor nudger: makes a MAJOR cursor move at least this often, so the
+    # cursor visibly moves ~every 30s even during long reading holds and excursions.
     enable_cursor_keeper: bool = True
-    cursor_move_interval: tuple[float, float] = (12.0, 20.0)  # move at least every ~20s
+    cursor_move_interval: tuple[float, float] = (24.0, 30.0)  # move at least every 30s
 
     # auto-pause when a real person uses the machine; resume after this many seconds
-    # of no genuine (hardware) input. (See core/injected.py for how the blackpearl's
-    # own synthetic input is kept from being mistaken for a real person's.)
+    # of no genuine (hardware) input. (See core/human_input.py: a CGEventTap records
+    # only input NOT posted by this process, so the harness's own synthetic input is
+    # never mistaken for a real person's — requires Input Monitoring permission.)
     enable_auto_pause: bool = True
     resume_after_idle: float = 120.0  # 2 minutes
 

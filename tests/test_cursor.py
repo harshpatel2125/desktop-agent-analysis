@@ -1,6 +1,24 @@
+import threading
 import time
 
 from core.cursor import CursorKeeper
+
+
+def test_cursor_keeper_skips_nudge_while_lock_held():
+    # The main loop holds input_lock during an action; the keeper must NOT post a nudge
+    # then (a concurrent move would drag the cursor off a click/bezier target).
+    calls = []
+    lock = threading.Lock()
+    lock.acquire()                       # simulate the main loop mid-action
+    ck = CursorKeeper(move_fn=lambda: calls.append(1), is_paused=lambda: False,
+                      interval=(0.01, 0.01), lock=lock)
+    ck.start()
+    time.sleep(0.15)
+    assert calls == []                   # lock held -> skipped every tick
+    lock.release()                       # action finished
+    time.sleep(0.1)
+    ck.stop()
+    assert len(calls) >= 1               # resumes nudging once the lock is free
 
 
 def test_cursor_keeper_moves_when_not_paused():
