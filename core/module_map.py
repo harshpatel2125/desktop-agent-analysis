@@ -21,6 +21,22 @@ _FILE_BULLET = re.compile(r"^\s*-\s+`([^`]+)`")
 # Module 12 is cross-cutting shared components — not a feature to rotate into.
 _EXCLUDED_KEYS = {"shared"}
 
+# Files shorter than this are skipped — they're re-export/stub files (e.g. a 1-line
+# `chat-export.tsx`) that aren't worth "reading". Real screens/components are much longer.
+_MIN_FILE_LINES = 15
+
+
+def _long_enough(path: str) -> bool:
+    """True if the file has at least _MIN_FILE_LINES lines (skips trivial stubs)."""
+    try:
+        with open(path, "r", errors="ignore") as f:
+            for i, _ in enumerate(f, 1):
+                if i >= _MIN_FILE_LINES:
+                    return True
+        return False
+    except OSError:
+        return False
+
 
 def module_key(heading_title: str) -> str:
     """'Ask Warp / AI Assistant' -> 'ask-warp'; 'Home (Dashboard)' -> 'home'."""
@@ -76,7 +92,7 @@ def build_module_map(md_path: str, project_path: str) -> dict:
         for group in ("screens", "components"):
             for rel in groups[group]:
                 full = os.path.join(src, rel)
-                if os.path.isfile(full):
+                if os.path.isfile(full) and _long_enough(full):
                     resolved[group].append(full)
         if resolved["screens"] or resolved["components"]:
             result[key] = resolved

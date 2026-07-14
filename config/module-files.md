@@ -8,11 +8,11 @@
 ## 1. Calendar
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/calendar/index.tsx` (153)
-- `app/(app)/(drawer)/(tabs)/calendar/[calendarId]/create.tsx` (109)
-- `app/(app)/(drawer)/(tabs)/calendar/[calendarId]/[calendarEventId]/edit.tsx` (88)
-- `app/(app)/(drawer)/(tabs)/calendar/[calendarId]/[calendarEventId]/index.tsx` (83)
-- `app/(app)/(drawer)/(tabs)/calendar/settings/index.tsx` (21)
+- `app/(app)/(main)/calendar/index.tsx` (153)
+- `app/(app)/(main)/calendar/[calendarId]/create.tsx` (109)
+- `app/(app)/(main)/calendar/[calendarId]/[calendarEventId]/edit.tsx` (88)
+- `app/(app)/(main)/calendar/[calendarId]/[calendarEventId]/index.tsx` (83)
+- `app/(app)/(main)/calendar/settings/index.tsx` (21)
 
 **Components**
 - `components/calendar/CalendarSideMenu.tsx` (42)
@@ -74,13 +74,13 @@
 ## 2. Chat / Messenger
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/chats/index.tsx` (91)
-- `app/(app)/(drawer)/(tabs)/chats/[id]/index.tsx` (53)
-- `app/(app)/(drawer)/(tabs)/chats/new-chat.tsx` (43)
-- `app/(app)/(drawer)/(tabs)/chats/contact-email.tsx` (11)
-- `app/(app)/(drawer)/(tabs)/chats/[id]/message-forwarder.tsx` (17)
-- `app/(app)/(drawer)/(tabs)/chats/[id]/message-attachments.tsx` (5)
-- `app/(app)/(drawer)/(tabs)/chats/[id]/shared-media.tsx` (5)
+- `app/(app)/(main)/chats/index.tsx` (91)
+- `app/(app)/(main)/chats/[id]/index.tsx` (53)
+- `app/(app)/(main)/chats/new-chat.tsx` (43)
+- `app/(app)/(main)/chats/contact-email.tsx` (11)
+- `app/(app)/(main)/chats/[id]/message-forwarder.tsx` (17)
+- `app/(app)/(main)/chats/[id]/message-attachments.tsx` (5)
+- `app/(app)/(main)/chats/[id]/shared-media.tsx` (5)
 - `app/(app)/chat-export.tsx` (1)
 - `app/(app)/chat-sources.tsx` (1)
 
@@ -148,14 +148,14 @@
 ## 3. Emails
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/emails/[emailAccountId]/draft.tsx` (138)
-- `app/(app)/(drawer)/(tabs)/emails/[emailAccountId]/[emailMessageId]/index.tsx` (72)
-- `app/(app)/(drawer)/(tabs)/emails/index.tsx` (68)
-- `app/(app)/(drawer)/(tabs)/emails/email-flow/index.tsx` (41)
-- `app/(app)/(drawer)/(tabs)/emails/email-classic.tsx` (22)
-- `app/(app)/(drawer)/(tabs)/emails/email-priorities.tsx` (12)
-- `app/(app)/(drawer)/(tabs)/emails/email-flow/[emailAccountId]/[emailMessageId]/[action].tsx` (18)
-- `app/(app)/(drawer)/(tabs)/emails/priorities-flow.tsx` (2)
+- `app/(app)/(main)/emails/[emailAccountId]/draft.tsx` (138)
+- `app/(app)/(main)/emails/[emailAccountId]/[emailMessageId]/index.tsx` (72)
+- `app/(app)/(main)/emails/index.tsx` (68)
+- `app/(app)/(main)/emails/email-flow/index.tsx` (41)
+- `app/(app)/(main)/emails/email-classic.tsx` (22)
+- `app/(app)/(main)/emails/email-priorities.tsx` (12)
+- `app/(app)/(main)/emails/email-flow/[emailAccountId]/[emailMessageId]/[action].tsx` (18)
+- `app/(app)/(main)/emails/priorities-flow.tsx` (2)
 
 **Components**
 - `components/emails/EmailBodyEditor.tsx` (90)
@@ -219,9 +219,9 @@
 ## 4. Notes
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/notes/new/index.tsx` (148)
-- `app/(app)/(drawer)/(tabs)/notes/index.tsx` (60)
-- `app/(app)/(drawer)/(tabs)/notes/[noteId]/index.tsx` (15)
+- `app/(app)/(main)/notes/new/index.tsx` (148)
+- `app/(app)/(main)/notes/index.tsx` (60)
+- `app/(app)/(main)/notes/[noteId]/index.tsx` (15)
 
 **Components**
 - `components/notes/Note/AiNoteButton.tsx` (59)
@@ -259,9 +259,9 @@
 ## 5. Tasks
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/tasks/create-task.tsx` (127)
-- `app/(app)/(drawer)/(tabs)/tasks/[id]/index.tsx` (76)
-- `app/(app)/(drawer)/(tabs)/tasks/index.tsx` (63)
+- `app/(app)/(main)/tasks/create-task.tsx` (127)
+- `app/(app)/(main)/tasks/[id]/index.tsx` (76)
+- `app/(app)/(main)/tasks/index.tsx` (63)
 
 **Components**
 - `components/tasks/Task/TaskDetailDescription.tsx` (69)
@@ -289,7 +289,7 @@
 ## 6. Home (Dashboard)
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/index.tsx` (64)
+- `app/(app)/(main)/index.tsx` (64)
 
 **Components**
 - `components/home/HomeItem.tsx` (37)
@@ -398,11 +398,11 @@
 ## 8. Contacts
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/contacts/[contactId]/details.tsx` (20)
-- `app/(app)/(drawer)/(tabs)/contacts/index.tsx` (19)
-- `app/(app)/(drawer)/(tabs)/contacts/[contactId]/miniDetails.tsx` (12)
-- `app/(app)/(drawer)/(tabs)/contacts/group-details.tsx` (10)
-- `app/(app)/(drawer)/(tabs)/contacts/manage/[mode].tsx` (8)
+- `app/(app)/(main)/contacts/[contactId]/details.tsx` (20)
+- `app/(app)/(main)/contacts/index.tsx` (19)
+- `app/(app)/(main)/contacts/[contactId]/miniDetails.tsx` (12)
+- `app/(app)/(main)/contacts/group-details.tsx` (10)
+- `app/(app)/(main)/contacts/manage/[mode].tsx` (8)
 
 **Components**
 - `components/contacts/ContactList.tsx` (24)
@@ -442,11 +442,11 @@
 ## 9. Integrations
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/user-centre/integrations/index.tsx` (52)
-- `app/(app)/(drawer)/(tabs)/user-centre/integrations/[id]/index.tsx` (34)
-- `app/(app)/(drawer)/(tabs)/user-centre/integrations/[id]/[accountId]/index.tsx` (27)
-- `app/(app)/(drawer)/(tabs)/user-centre/integrations/[id]/[accountId]/delete.tsx` (12)
-- `app/(app)/(drawer)/(tabs)/user-centre/integrations/[id]/password-setup/index.tsx` (1)
+- `app/(app)/(main)/user-centre/integrations/index.tsx` (52)
+- `app/(app)/(main)/user-centre/integrations/[id]/index.tsx` (34)
+- `app/(app)/(main)/user-centre/integrations/[id]/[accountId]/index.tsx` (27)
+- `app/(app)/(main)/user-centre/integrations/[id]/[accountId]/delete.tsx` (12)
+- `app/(app)/(main)/user-centre/integrations/[id]/password-setup/index.tsx` (1)
 - `app/(app)/integrations-modal.tsx` (1)
 
 **Components**
@@ -471,18 +471,18 @@
 ## 10. User Centre / Settings
 
 **Screens**
-- `app/(app)/(drawer)/(tabs)/user-centre/index.tsx` (37)
-- `app/(app)/(drawer)/(tabs)/user-centre/my-profile/index.tsx` (37)
-- `app/(app)/(drawer)/(tabs)/user-centre/account-details/index.tsx` (34)
-- `app/(app)/(drawer)/(tabs)/user-centre/subscription-plan/index.tsx` (33)
-- `app/(app)/(drawer)/(tabs)/user-centre/help-and-support/index.tsx` (28)
-- `app/(app)/(drawer)/(tabs)/user-centre/integrations/[id]/[accountId]/index.tsx` (27)
-- `app/(app)/(drawer)/(tabs)/user-centre/my-settings/index.tsx` (13)
-- `app/(app)/(drawer)/(tabs)/user-centre/video-guides/index.tsx` (11)
-- `app/(app)/(drawer)/(tabs)/user-centre/privacy-centre/index.tsx` (15)
-- `app/(app)/(drawer)/(tabs)/user-centre/my-profile/change-password.tsx` (2)
-- `app/(app)/(drawer)/(tabs)/user-centre/permissions/index.tsx` (2)
-- `app/(app)/(drawer)/(tabs)/user-centre/subscription-plan/manage/index.tsx` (7)
+- `app/(app)/(main)/user-centre/index.tsx` (37)
+- `app/(app)/(main)/user-centre/my-profile/index.tsx` (37)
+- `app/(app)/(main)/user-centre/account-details/index.tsx` (34)
+- `app/(app)/(main)/user-centre/subscription-plan/index.tsx` (33)
+- `app/(app)/(main)/user-centre/help-and-support/index.tsx` (28)
+- `app/(app)/(main)/user-centre/integrations/[id]/[accountId]/index.tsx` (27)
+- `app/(app)/(main)/user-centre/my-settings/index.tsx` (13)
+- `app/(app)/(main)/user-centre/video-guides/index.tsx` (11)
+- `app/(app)/(main)/user-centre/privacy-centre/index.tsx` (15)
+- `app/(app)/(main)/user-centre/my-profile/change-password.tsx` (2)
+- `app/(app)/(main)/user-centre/permissions/index.tsx` (2)
+- `app/(app)/(main)/user-centre/subscription-plan/manage/index.tsx` (7)
 
 **Features**
 - `features/profile/hooks/useProfileEditorController.ts` (3)

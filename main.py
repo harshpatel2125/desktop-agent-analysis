@@ -53,10 +53,10 @@ def main():
     # cycle + module switch in minutes. Holds still sum to the window (short+long==window).
     if os.environ.get("BLACKPEARL_TEST") == "1":
         cfg = replace(cfg,
-                      vscode_window_secs=60, excursion_secs=20, module_period_secs=4 * 60,
-                      file_hold_short_secs=15, file_hold_long_secs=45,
-                      claude_switch_after_secs=20, reading_step_gap=(5.0, 10.0),
-                      cursor_move_interval=(8.0, 12.0))
+                      vscode_window_secs=12, excursion_secs=4, module_period_secs=60,
+                      file_hold_short_secs=4, file_hold_long_secs=8,
+                      claude_switch_after_secs=6, reading_step_gap=(2.5, 5.0),
+                      cursor_move_interval=(5.0, 8.0))
         dprint("BLACKPEARL_TEST=1 → FAST profile (compressed timings; behavior identical).")
     if debug:
         cfg = replace(cfg, debug_log=True)
@@ -171,14 +171,15 @@ def main():
     def open_and_hold(path, hold_secs):
         rel = os.path.relpath(path, cfg.project_path)
         log(f"open {rel} (hold {int(hold_secs)}s)")
+        reader = vscode.FileReader(path)              # bounded reader — never scrolls into void
 
         def open_and_settle():
-            if vscode.open_file(rel):                 # False if the file is missing
-                vscode.scroll_into_file(path)         # scroll past the imports (~20-35%)
+            pos = vscode.open_and_read(rel)           # open at top -> scroll past imports
+            reader.reset(max(0, pos))                 # sync reader to the landing position
 
         act(open_and_settle)
         active_hold(hold_secs,
-                    step=lambda: vscode.reading_scroll(),
+                    step=reader.step,                 # reads up/down WITHIN the file's content
                     on_resume=open_and_settle)
 
     def files_window(groups):
@@ -199,7 +200,7 @@ def main():
         if path:
             rel = os.path.relpath(path, cfg.project_path)
             log(f"open {rel} (claude window)")
-            act(lambda: vscode.open_file(rel))
+            act(lambda: vscode.open_and_read(rel))
         if not cfg.enable_claude_extension:
             active_hold(cfg.vscode_window_secs)     # Claude off → just read the window out
             return

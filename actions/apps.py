@@ -4,8 +4,6 @@ import time
 import pyautogui
 
 from core import mouse
-from core.clipboard import get_clipboard, set_clipboard
-from core.keys import hotkey
 from core.platform_mac import (activate_app, frontmost_app, is_chrome_frontmost,
                                is_vscode_frontmost, wait_until_frontmost)
 from core.rng import RNG
@@ -74,27 +72,14 @@ def claude_switch_chat(cfg):
 # ---------------------------------------------------------------- Jira (Chrome)
 
 def jira_board(url: str, is_paused=lambda: False):
-    """Open `url` as a new Chrome tab (view-only). Pastes the URL (Cmd+V) rather than
-    typing it, and restores the clipboard. No further actions — just open."""
+    """Open `url` in Chrome DIRECTLY via `open` — no keyboard (no Cmd+T / paste / Enter),
+    no clipboard. `open -a` hands the URL to Chrome, which opens it in a new tab and comes
+    to the front. View-only; no further actions — just open and let it load."""
     if not url or is_paused():
         return
-    subprocess.run(["open", "-a", _CHROME], check=False)  # launch or focus Chrome
-    # `open -a` only REQUESTS focus; typing before Chrome is actually frontmost lands the
-    # keystrokes in whatever window was focused (e.g. VS Code). Confirm first.
-    if not wait_until_frontmost(is_chrome_frontmost, timeout=5.0):
-        return
-    time.sleep(RNG.uniform(0.4, 0.9))
-    prev_clip = get_clipboard()
-    set_clipboard(url)
-    hotkey("command", "t")                            # new tab (address bar focused)
-    time.sleep(RNG.uniform(0.5, 0.9))
-    hotkey("command", "v")                            # paste — no manual typing
-    # Let the omnibox settle: pressing Enter too soon after paste (while Chrome is still
-    # processing the pasted text / autocomplete) drops the keystroke and nothing navigates.
-    time.sleep(RNG.uniform(0.8, 1.3))
-    pyautogui.press("return")                         # navigate
-    time.sleep(RNG.uniform(1.5, 3.0))
-    set_clipboard(prev_clip)
+    subprocess.run(["open", "-a", _CHROME, url], check=False)   # open the URL directly
+    wait_until_frontmost(is_chrome_frontmost, timeout=5.0)      # confirm it fronted
+    time.sleep(RNG.uniform(1.5, 3.0))                           # let the board load
 
 
 # ---------------------------------------------------------------- Slack (app)

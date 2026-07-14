@@ -40,37 +40,24 @@ def open_project(path: str):
 
 
 def open_file(rel_path: str) -> bool:
-    """Open a file by PASTING its path into Quick Open (Cmd+P) — never typing it.
+    """Open a file via the `code` CLI, positioned at the TOP (line 1).
 
-    Typing the path char-by-char mangled shifted characters (e.g. `(tabs)` came out as
-    `9tabs)`, `.tsx` truncated to `.ts`) and could open the wrong file or none. Pasting
-    the exact path (Cmd+V), like the Jira flow, is 100% accurate. The path is also checked
-    to exist on disk first, so a bad entry is skipped rather than left as junk in the
-    Quick Open box. Returns True if it attempted to open, False if the file is missing.
-    """
-    if not os.path.isfile(os.path.join(CONFIG.project_path, rel_path)):
+    Uses the CLI — NOT keyboard automation — so it can NEVER type into the editor, paste
+    into the wrong box, or open the wrong file (the exact bugs that plagued the Cmd+P +
+    paste approach). `--goto <file>:1` also guarantees the view is at the top even if the
+    file was previously open at the bottom. Validated at every step:
+      - the file must exist on disk,
+      - VS Code must be confirmed frontmost after opening (nudged + retried once).
+    Returns True only once the file is open and VS Code is frontmost; False otherwise."""
+    abs_path = os.path.join(CONFIG.project_path, rel_path)
+    if not os.path.isfile(abs_path):
         return False
-    _focus()
-    # Pull keyboard focus INTO the editor before opening Quick Open. Critical after a
-    # Claude window: focus may be sitting in the Claude webview or the terminal, where
-    # Cmd+P can be captured and the pasted path would land in the WRONG box. A click in
-    # the editor body puts focus in the code (and dismisses any stray popup) first.
-    _click_editor()
-    if not is_vscode_frontmost():                     # confirm before any keystroke
-        return False
-    prev_clip = get_clipboard()                      # save the user's clipboard
-    set_clipboard(rel_path)
-    hotkey("command", "p")                            # open Quick Open (input focused)
-    time.sleep(RNG.uniform(0.5, 0.8))
-    if not is_vscode_frontmost():                     # re-verify before pasting
-        pyautogui.press("escape")
-        set_clipboard(prev_clip)
-        return False
-    hotkey("command", "v")                           # paste the exact path — no typos
-    time.sleep(RNG.uniform(0.7, 1.1))                # let Quick Open filter to the match
-    pyautogui.press("return")
-    time.sleep(RNG.uniform(0.6, 1.0))
-    set_clipboard(prev_clip)                         # restore the user's clipboard
+    subprocess.run(["code", "--reuse-window", "--goto", f"{abs_path}:1"], check=False)
+    if not wait_until_frontmost(is_vscode_frontmost, timeout=5.0):
+        activate_app(_VSCODE)                          # nudge focus, then retry once
+        if not wait_until_frontmost(is_vscode_frontmost, timeout=3.0):
+            return False
+    time.sleep(RNG.uniform(0.5, 0.9))                  # let it render the file at the top
     return True
 
 
@@ -139,26 +126,16 @@ def _move_over_editor():
     time.sleep(RNG.uniform(0.2, 0.5))
 
 
-def _wheel(lines_down: int, step: int = 4):
-    """Scroll the editor DOWN by ~lines_down lines using the mouse wheel, in quick steps.
-    Pure wheel — no keyboard, so nothing can land in a focused popup."""
-    notches = max(1, round(lines_down / _LINES_PER_NOTCH))
+def _wheel(lines: int, up: bool = False, step: int = 4):
+    """Wheel-scroll ~`lines` editor lines (DOWN by default, UP if up=True), in quick small
+    steps. Pure wheel — no keyboard, so nothing can land in a focused popup."""
+    notches = max(1, round(lines / _LINES_PER_NOTCH))
     done = 0
     while done < notches:
         n = min(step, notches - done)
-        pyautogui.scroll(-n)                          # negative = scroll DOWN
+        pyautogui.scroll(n if up else -n)             # + = UP, - = DOWN
         done += n
         time.sleep(RNG.uniform(0.1, 0.25))
-
-
-def reading_scroll(times: int | None = None):
-    """A short reading scroll during a file 'hold' — just move over the editor and wheel
-    down a little. No keys, no clicks, so it can never open or navigate a popup."""
-    if not is_vscode_frontmost():
-        return
-    _move_over_editor()
-    times = times if times is not None else RNG.randint(2, 4)
-    _wheel(lines_down=RNG.randint(8, 20) * (times // 2 or 1))
 
 
 def count_lines(abs_path: str):
@@ -170,23 +147,76 @@ def count_lines(abs_path: str):
         return None
 
 
-_MIN_SCROLL_LINES = 120   # always scroll at least this far past the imports
+_MIN_SCROLL_LINES = 120   # aim to scroll ~this far past the imports (long files only)
 
 
-def scroll_into_file(abs_path=None, min_frac: float = 0.10, max_frac: float = 0.18):
-    """Right after opening, scroll DOWN well past the imports — at least ~120 lines
-    (more for long files). Dead simple: move the mouse over the editor and wheel down.
-    NO Cmd keys, NO PageDown, NO clicks — so it can't open or navigate a popup."""
+def _max_scroll(total_lines: int) -> int:
+    """The furthest we can scroll DOWN before the view runs past the last line into blank
+    space. Scrolling beyond this shows the empty void below the file — so we never do."""
+    return max(0, total_lines - _LINES_PER_SCREEN)
+
+
+def _scroll_down_past_imports(abs_path) -> int:
+    """From the top, wheel DOWN past the imports — ~120 lines on long files, but NEVER past
+    the file's content (a 100/150-line file only scrolls as far as its last screen, no blank
+    void). Returns the number of lines actually scrolled (the landing position)."""
     if not is_vscode_frontmost():
-        return
-    line_count = count_lines(abs_path) if abs_path else None
-    if line_count is not None and line_count <= _LINES_PER_SCREEN:
-        return                                        # short file: all of it already on screen
+        return 0
+    total = count_lines(abs_path) or 400
+    cap = _max_scroll(total)
+    if cap <= 0:                                       # whole file fits on screen — don't scroll
+        return 0
     _move_over_editor()
-    total = line_count or 400
-    target = max(_MIN_SCROLL_LINES, round(RNG.uniform(min_frac, max_frac) * total))
-    target = min(target, max(_MIN_SCROLL_LINES, total - _LINES_PER_SCREEN))  # not past end
-    _wheel(lines_down=target)
+    desired = max(_MIN_SCROLL_LINES, round(RNG.uniform(0.10, 0.18) * total))
+    target = min(desired, cap)                         # clamp to content — no void
+    _wheel(target)
+    return target
+
+
+class FileReader:
+    """Reads a held file by wheeling up/down like a person, staying WITHIN the file's
+    content — it never marches down into the blank void past the last line. Tracks an
+    approximate position and prefers scrolling back up as it nears the bottom."""
+
+    def __init__(self, abs_path, start_pos: int = 0):
+        total = count_lines(abs_path) or 400
+        self.cap = _max_scroll(total)
+        self.pos = max(0, min(start_pos, self.cap))
+
+    def reset(self, start_pos: int = 0):
+        self.pos = max(0, min(start_pos, self.cap))
+
+    def step(self):
+        """One reading scroll — small, bounded, up or down. No keys, no clicks."""
+        if not is_vscode_frontmost() or self.cap <= 0:
+            return
+        _move_over_editor()
+        near_bottom = self.pos >= self.cap - 5
+        near_top = self.pos <= 5
+        go_up = near_bottom or (not near_top and RNG.random() < 0.35)
+        if go_up:
+            d = min(RNG.randint(6, 16), self.pos)
+            if d:
+                _wheel(d, up=True)
+                self.pos -= d
+        else:
+            d = min(RNG.randint(6, 16), self.cap - self.pos)
+            if d:
+                _wheel(d)
+                self.pos += d
+
+
+def open_and_read(rel_path: str) -> int:
+    """The full, ordered per-file flow the schedule uses:
+
+      1. open the file via the `code` CLI at line 1 (TOP) — no keyboard, can't edit
+      2. VS Code confirmed frontmost + file rendered (validated inside open_file)
+      3. scroll DOWN past the imports, bounded to the file's content (no blank void)
+
+    Returns the landing scroll position (lines from top), or -1 if the file didn't open."""
+    if not open_file(rel_path):                       # 1+2) open at top, focus validated
+        return -1
+    return _scroll_down_past_imports(os.path.join(CONFIG.project_path, rel_path))  # 3)
 
 
 def navigate(line_count: int | None = None, is_paused=lambda: False):
